@@ -61,4 +61,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.3")
     implementation("androidx.camera:camera-lifecycle:1.3.3")
     implementation("androidx.camera:camera-view:1.3.3")
+    implementation("androidx.camera:camera-video:1.3.3")
+    implementation("androidx.compose.material3:material3:1.3.0")
+    //implementation("androidx.camera:camera-mlkit-vision:1.3.3")
 }
