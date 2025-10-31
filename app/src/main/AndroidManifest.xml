@@ -20,7 +20,7 @@
         android:theme="@style/Theme.VisualLocatizationApp">
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyBMeF4Ys_iZzC6RNlrjVaQobJ4UkRNs3Tg" />
+            android:value="#" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
