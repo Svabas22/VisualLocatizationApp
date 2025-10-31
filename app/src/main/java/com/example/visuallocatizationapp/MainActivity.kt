@@ -38,6 +38,17 @@ import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import android.content.Context
+import androidx.core.net.toFile
+import com.example.visuallocatizationapp.network.ApiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+
 
 class MainActivity : ComponentActivity() {
 
@@ -104,7 +115,6 @@ fun CameraRecorderScreen() {
         }
 
         else -> {
-            // Show preview of recorded video
             VideoPreviewScreen(
                 videoUri = videoUri!!,
                 onDiscard = { videoUri = null },
@@ -239,8 +249,24 @@ fun VideoPreviewScreen(
     onDiscard: () -> Unit,
     onSend: () -> Unit
 ) {
+    val context = LocalContext.current
+    var isUploading by remember { mutableStateOf(false) }
+
+    data class LocationData(val lat: Double, val lon: Double, val conf: Double)
+    var locationData by remember { mutableStateOf<LocationData?>(null) }
+
+    // If we have location → show map screen
+    locationData?.let { data ->
+        MapScreen(
+            latitude = data.lat,
+            longitude = data.lon,
+            confidence = data.conf,
+            onBack = { locationData = null } // go back to video preview
+        )
+        return
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Play the recorded video
         AndroidView(
             factory = { ctx ->
                 android.widget.VideoView(ctx).apply {
@@ -254,6 +280,7 @@ fun VideoPreviewScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // Discard button
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -266,13 +293,66 @@ fun VideoPreviewScreen(
             Text("✕", color = Color.White, style = MaterialTheme.typography.titleLarge)
         }
 
+        // Send button
         Button(
-            onClick = onSend,
+            onClick = {
+                if (!isUploading) {
+                    isUploading = true
+                    uploadVideo(context, videoUri) { lat, lon, conf ->
+                        locationData = LocationData(lat, lon, conf)
+                        isUploading = false
+                    }
+                }
+            },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 40.dp)
         ) {
-            Text("Send")
+            Text(if (isUploading) "Uploading..." else "Send")
+        }
+    }
+}
+
+
+fun uploadVideo(
+    context: Context,
+    videoUri: Uri,
+    onResult: (Double, Double, Double) -> Unit
+) {
+    val file = try {
+        videoUri.toFile()
+    } catch (e: Exception) {
+        Log.e("Upload", "Failed to get file from URI", e)
+        return
+    }
+
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            val requestFile = file.asRequestBody("video/mp4".toMediaTypeOrNull())
+            val body = MultipartBody.Part.createFormData("video", file.name, requestFile)
+
+            val response = ApiClient.instance.uploadVideo(body)
+
+            if (response.isSuccessful) {
+                val bodyResult = response.body()
+                if (bodyResult != null) {
+                    Log.d("Upload", "Response: $bodyResult")
+                    withContext(Dispatchers.Main) {
+                        onResult(bodyResult.latitude, bodyResult.longitude, bodyResult.confidence)
+                    }
+                } else {
+                    Log.e("Upload", "Response body is null")
+                }
+            } else {
+                Log.e("Upload", "Server error: ${response.code()} ${response.message()}")
+            }
+
+        } catch (e: Exception) {
+            Log.e("Upload", "Upload failed", e)
+            withContext(Dispatchers.Main) {
+                // Optional: show Toast for clarity
+                android.widget.Toast.makeText(context, "Upload failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
         }
     }
 }
