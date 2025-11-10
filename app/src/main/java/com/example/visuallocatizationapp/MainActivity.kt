@@ -114,24 +114,19 @@ fun CameraRecorderScreen() {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        hasPermissions = permissions[Manifest.permission.CAMERA] == true &&
-                permissions[Manifest.permission.RECORD_AUDIO] == true
+        hasPermissions = permissions[Manifest.permission.CAMERA] == true
     }
 
     LaunchedEffect(Unit) {
         val cameraGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
-        val audioGranted = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        hasPermissions = cameraGranted && audioGranted
+        hasPermissions = cameraGranted
 
         if (!hasPermissions) {
             permissionLauncher.launch(
                 arrayOf(
-                    Manifest.permission.CAMERA,
-                    Manifest.permission.RECORD_AUDIO
+                    Manifest.permission.CAMERA
                 )
             )
         }
@@ -143,7 +138,7 @@ fun CameraRecorderScreen() {
         !hasPermissions -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "This app needs camera and microphone permissions to record video.",
+                    text = "This app needs camera permissions to record video.",
                     color = Color.White
                 )
             }
@@ -220,7 +215,6 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
                         )
                         val outputOptions = FileOutputOptions.Builder(file).build()
                         val pendingRecording = capture.output.prepareRecording(context, outputOptions)
-                            .withAudioEnabled()
                         recording = pendingRecording.start(
                             ContextCompat.getMainExecutor(context)
                         ) { recordEvent ->
