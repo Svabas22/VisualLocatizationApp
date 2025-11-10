@@ -350,3 +350,119 @@ fun uploadVideo(
         }
     }
 }
+
+fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30): List<Bitmap> {
+    val retriever = MediaMetadataRetriever()
+    val frames = mutableListOf<Bitmap>()
+
+    try {
+        retriever.setDataSource(context, videoUri)
+
+        val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        val interval = duration / frameCount
+
+        for (i in 0 until frameCount) {
+            val timeUs = (i * interval) * 1000 // Convert to microseconds
+            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            frame?.let { frames.add(it) }
+        }
+
+    } catch (e: Exception) {
+        Log.e("FrameExtractor", "Failed to extract frames", e)
+    } finally {
+        retriever.release()
+    }
+
+    return frames
+}
+
+@Composable
+fun FramePlaybackScreen(
+    frames: List<Bitmap>,
+    videoUri: Uri,
+    onDiscard: () -> Unit,
+    onSend: () -> Unit
+) {
+    val context = LocalContext.current
+    var currentFrameIndex by remember { mutableStateOf(0) }
+    var isUploading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(frames) {
+        if (frames.isNotEmpty()) {
+            while (true) {
+                kotlinx.coroutines.delay(100) // 10 FPS playback
+                currentFrameIndex = (currentFrameIndex + 1) % frames.size
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (frames.isNotEmpty()) {
+            Image(
+                bitmap = frames[currentFrameIndex].asImageBitmap(),
+                contentDescription = "Frame $currentFrameIndex",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+
+        LazyRow(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(100.dp)
+                .background(Color.Black.copy(alpha = 0.7f))
+                .padding(8.dp)
+        ) {
+            items(frames) { frame ->
+                Image(
+                    bitmap = frame.asImageBitmap(),
+                    contentDescription = "Frame thumbnail",
+                    modifier = Modifier
+                        .size(80.dp)
+                        .padding(4.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(16.dp)
+                .size(40.dp)
+                .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
+                .clickable { onDiscard() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("X", color = Color.White)
+        }
+
+        Button(
+            onClick = {
+                if (!isUploading) {
+                    isUploading = true
+                    uploadVideo(context, videoUri) { _, _, _ ->
+                        isUploading = false
+                        onSend()
+                    }
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Text(if (isUploading) "Uploading..." else "Send")
+        }
+
+        Text(
+            text = "Frame ${currentFrameIndex + 1}/${frames.size}",
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(16.dp)
+                .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+    }
+}
