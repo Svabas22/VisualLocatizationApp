@@ -156,16 +156,41 @@ fun CameraRecorderScreen() {
         }
 
         videoUri == null -> {
-            CameraRecordView(onVideoRecorded = { uri -> videoUri = uri })
+            CameraRecordView(onVideoRecorded = { uri ->
+                videoUri = uri
+                // Extract frames after recording
+                CoroutineScope(Dispatchers.IO).launch {
+                    val frames = extractFramesFromVideo(context, uri, frameCount = 30)
+                    withContext(Dispatchers.Main) {
+                        extractedFrames = frames
+                    }
+                }
+            })
+        }
+
+        extractedFrames.isEmpty() -> {
+            // Show loading while extracting frames
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+                Text(
+                    text = "Extracting frames...",
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 80.dp)
+                )
+            }
         }
 
         else -> {
-            VideoPreviewScreen(
+            FramePlaybackScreen(
+                frames = extractedFrames,
                 videoUri = videoUri!!,
-                onDiscard = { videoUri = null },
-                onSend = {
-                    Log.d("Uploader", "Pretending to send video: $videoUri")
+                onDiscard = {
                     videoUri = null
+                    extractedFrames = emptyList()
+                },
+                onSend = {
+                    videoUri = null
+                    extractedFrames = emptyList()
                 }
             )
         }
