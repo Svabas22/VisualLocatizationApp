@@ -26,7 +26,6 @@ fun MapScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 🗺️ Actual Google Map
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState
@@ -38,7 +37,6 @@ fun MapScreen(
             )
         }
 
-        // 🔙 Back button (top-left corner)
         Box(
             modifier = Modifier
                 .padding(16.dp)
@@ -51,7 +49,6 @@ fun MapScreen(
             Text("← Back", color = Color.White)
         }
 
-        // 📍 Info overlay (bottom)
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
