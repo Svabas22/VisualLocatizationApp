@@ -143,6 +143,7 @@ fun CameraRecorderScreen() {
     }
 
     var videoUri by remember { mutableStateOf<Uri?>(null) }
+    var extractedFrames by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
 
     when {
         !hasPermissions -> {
