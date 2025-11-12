@@ -43,4 +43,27 @@ object ZoneStorage {
         val dir = getZonesDir(context)
         return dir.list()?.toList() ?: emptyList()
     }
+    fun deleteZone(context: Context, zoneId: String) {
+        try {
+            val dir = getZoneDir(context, zoneId)
+            if (dir.exists()) {
+                dir.deleteRecursively()
+                Log.d("ZoneStorage", "Deleted zone '$zoneId' at ${dir.absolutePath}")
+            } else {
+                Log.w("ZoneStorage", "Zone '$zoneId' not found for deletion")
+            }
+        } catch (e: Exception) {
+            Log.e("ZoneStorage", "Failed to delete zone $zoneId", e)
+        }
+    }
+
+    fun loadZoneFile(context: Context, zoneId: String): String? {
+        return try {
+            val file = File(getZoneDir(context, zoneId), "zone.json")
+            if (file.exists()) file.readText() else null
+        } catch (e: Exception) {
+            Log.e("ZoneStorage", "Failed to read zone file for $zoneId", e)
+            null
+        }
+    }
 }

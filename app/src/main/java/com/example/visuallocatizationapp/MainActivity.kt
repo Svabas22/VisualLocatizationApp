@@ -13,7 +13,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
-
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Recorder
@@ -41,18 +40,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.visuallocatizationapp.network.ApiClient
 import com.example.visuallocatizationapp.storage.ZoneStorage
 import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-
-// These imports are required for video discretization
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.Image
@@ -60,7 +54,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +71,7 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var selectedZone by remember { mutableStateOf<Zone?>(null) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -90,7 +84,11 @@ fun MainScreen() {
                 )
                 Divider()
                 ZoneListDrawer(
-                    onZoneSelected = { scope.launch { drawerState.close() } }
+                    selectedZoneId = selectedZone?.id,
+                    onZoneSelected = { zone ->
+                        selectedZone = zone
+                        scope.launch { drawerState.close() }
+                    }
                 )
             }
         }
@@ -98,7 +96,13 @@ fun MainScreen() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Visual Localization") },
+                    title = {
+                        Text(
+                            "Visual Localization" + if (selectedZone != null)
+                                " (${selectedZone!!.name})"
+                            else ""
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Menu")
@@ -107,17 +111,19 @@ fun MainScreen() {
                 )
             }
         ) { innerPadding ->
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)) {
-                CameraRecorderScreen()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                CameraRecorderScreen(selectedZone)
             }
         }
     }
 }
 
 @Composable
-fun CameraRecorderScreen() {
+fun CameraRecorderScreen(selectedZone: Zone?) {
     val context = LocalContext.current
     var hasPermissions by remember { mutableStateOf(false) }
 
@@ -134,11 +140,7 @@ fun CameraRecorderScreen() {
         hasPermissions = cameraGranted
 
         if (!hasPermissions) {
-            permissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.CAMERA
-                )
-            )
+            permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
         }
     }
 
@@ -158,7 +160,6 @@ fun CameraRecorderScreen() {
         videoUri == null -> {
             CameraRecordView(onVideoRecorded = { uri ->
                 videoUri = uri
-                // Extract frames after recording
                 CoroutineScope(Dispatchers.IO).launch {
                     val frames = extractFramesFromVideo(context, uri, frameCount = 30)
                     withContext(Dispatchers.Main) {
@@ -169,7 +170,6 @@ fun CameraRecorderScreen() {
         }
 
         extractedFrames.isEmpty() -> {
-            // Show loading while extracting frames
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
                 Text(
@@ -184,11 +184,8 @@ fun CameraRecorderScreen() {
             FramePlaybackScreen(
                 frames = extractedFrames,
                 videoUri = videoUri!!,
+                selectedZone = selectedZone,
                 onDiscard = {
-                    videoUri = null
-                    extractedFrames = emptyList()
-                },
-                onSend = {
                     videoUri = null
                     extractedFrames = emptyList()
                 }
@@ -274,126 +271,34 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
 }
 
 @Composable
-fun VideoPreviewScreen(
-    videoUri: Uri,
-    onDiscard: () -> Unit,
-    onSend: () -> Unit
-) {
-    val context = LocalContext.current
-    var isUploading by remember { mutableStateOf(false) }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { ctx ->
-                android.widget.VideoView(ctx).apply {
-                    setVideoURI(videoUri)
-                    setOnPreparedListener { mp ->
-                        mp.isLooping = true
-                        start()
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-                .size(40.dp)
-                .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
-                .clickable { onDiscard() },
-            contentAlignment = Alignment.Center
-        ) {
-            Text("✕", color = Color.White)
-        }
-
-        Button(
-            onClick = {
-                if (!isUploading) {
-                    isUploading = true
-                    uploadVideo(context, videoUri) { _, _, _ ->
-                        isUploading = false
-                    }
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 40.dp)
-        ) {
-            Text(if (isUploading) "Uploading..." else "Send")
-        }
-    }
-}
-
-fun uploadVideo(
-    context: Context,
-    videoUri: Uri,
-    onResult: (Double, Double, Double) -> Unit
-) {
-    val file = videoUri.toFile()
-    CoroutineScope(Dispatchers.IO).launch {
-        try {
-            val requestFile = file.asRequestBody("video/mp4".toMediaTypeOrNull())
-            val body = MultipartBody.Part.createFormData("video", file.name, requestFile)
-            val response = ApiClient.instance.uploadVideo(body)
-            if (response.isSuccessful) {
-                val bodyResult = response.body()
-                if (bodyResult != null) {
-                    withContext(Dispatchers.Main) {
-                        onResult(bodyResult.latitude, bodyResult.longitude, bodyResult.confidence)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("Upload", "Upload failed", e)
-        }
-    }
-}
-
-fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30): List<Bitmap> {
-    val retriever = MediaMetadataRetriever()
-    val frames = mutableListOf<Bitmap>()
-
-    try {
-        retriever.setDataSource(context, videoUri)
-
-        val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-        val interval = duration / frameCount
-
-        for (i in 0 until frameCount) {
-            val timeUs = (i * interval) * 1000 // Convert to microseconds
-            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            frame?.let { frames.add(it) }
-        }
-
-    } catch (e: Exception) {
-        Log.e("FrameExtractor", "Failed to extract frames", e)
-    } finally {
-        retriever.release()
-    }
-
-    return frames
-}
-
-@Composable
 fun FramePlaybackScreen(
     frames: List<Bitmap>,
     videoUri: Uri,
-    onDiscard: () -> Unit,
-    onSend: () -> Unit
+    selectedZone: Zone?,
+    onDiscard: () -> Unit
 ) {
     val context = LocalContext.current
     var currentFrameIndex by remember { mutableStateOf(0) }
     var isUploading by remember { mutableStateOf(false) }
+    var locationData by remember { mutableStateOf<Triple<Double, Double, Double>?>(null) }
 
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
             while (true) {
-                kotlinx.coroutines.delay(100) // 10 FPS playback
+                delay(100)
                 currentFrameIndex = (currentFrameIndex + 1) % frames.size
             }
         }
+    }
+
+    locationData?.let { (lat, lon, conf) ->
+        MapScreen(
+            latitude = lat,
+            longitude = lon,
+            confidence = conf,
+            onBack = { locationData = null }
+        )
+        return
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -442,9 +347,15 @@ fun FramePlaybackScreen(
             onClick = {
                 if (!isUploading) {
                     isUploading = true
-                    uploadVideo(context, videoUri) { _, _, _ ->
+                    // simulate result, based on selected zone (for now random)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        delay(2000)
+                        val lat = 54.6872 + Random().nextDouble() / 1000
+                        val lon = 25.2797 + Random().nextDouble() / 1000
+                        val conf = 0.85
+                        Log.d("Localization", "Predicted coordinates in zone: ${selectedZone?.name}")
+                        locationData = Triple(lat, lon, conf)
                         isUploading = false
-                        onSend()
                     }
                 }
             },
@@ -452,11 +363,12 @@ fun FramePlaybackScreen(
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
         ) {
-            Text(if (isUploading) "Uploading..." else "Send")
+            Text(if (isUploading) "Processing..." else "Send")
         }
 
         Text(
-            text = "Frame ${currentFrameIndex + 1}/${frames.size}",
+            text = "Frame ${currentFrameIndex + 1}/${frames.size}" +
+                    (selectedZone?.let { "\nZone: ${it.name}" } ?: "\nNo zone selected"),
             color = Color.White,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -465,4 +377,24 @@ fun FramePlaybackScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
+}
+
+fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30): List<Bitmap> {
+    val retriever = MediaMetadataRetriever()
+    val frames = mutableListOf<Bitmap>()
+    try {
+        retriever.setDataSource(context, videoUri)
+        val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        val interval = duration / frameCount
+        for (i in 0 until frameCount) {
+            val timeUs = (i * interval) * 1000
+            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            frame?.let { frames.add(it) }
+        }
+    } catch (e: Exception) {
+        Log.e("FrameExtractor", "Failed to extract frames", e)
+    } finally {
+        retriever.release()
+    }
+    return frames
 }
