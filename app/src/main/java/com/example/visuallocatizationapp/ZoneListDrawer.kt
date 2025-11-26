@@ -1,6 +1,5 @@
 package com.example.visuallocatizationapp
 
-import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,11 +15,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.visuallocatizationapp.network.ApiClient
 import com.example.visuallocatizationapp.storage.ZoneStorage
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.ResponseBody
-
 
 @Composable
 fun ZoneListDrawer(
@@ -35,7 +32,9 @@ fun ZoneListDrawer(
     LaunchedEffect(Unit) {
         try {
             val response = ApiClient.instance.getZones()
-            if (response.isSuccessful) zones = response.body() ?: emptyList()
+            if (response.isSuccessful) {
+                zones = response.body() ?: emptyList()
+            }
             downloadedZones = ZoneStorage.listDownloadedZones(context)
         } catch (e: Exception) {
             Log.e("Zones", "Error fetching zones", e)
@@ -60,11 +59,18 @@ fun ZoneListDrawer(
                         onZoneSelected(zone)
                     } else {
                         scope.launch(Dispatchers.IO) {
-                            val response = ApiClient.instance.downloadZone(zone.id)
-                            if (response.isSuccessful) {
-                                val body: ResponseBody = response.body()!!
-                                ZoneStorage.saveZoneFile(context, zone.id, body.byteStream())
-                                downloadedZones = ZoneStorage.listDownloadedZones(context)
+                            try {
+                                val response = ApiClient.instance.downloadZone(zone.id)
+                                if (response.isSuccessful) {
+                                    val body: ResponseBody = response.body()!!
+                                    ZoneStorage.saveZoneZip(context, zone.id, body.byteStream())
+                                    downloadedZones =
+                                        ZoneStorage.listDownloadedZones(context)
+                                } else {
+                                    Log.e("ZoneDownload", "Server error: ${response.code()}")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("ZoneDownload", "Failed", e)
                             }
                         }
                     }
@@ -109,7 +115,7 @@ fun ZoneDrawerItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(zone.name, style = MaterialTheme.typography.titleMedium)
-                Text("Size: ${zone.size_mb} MB", style = MaterialTheme.typography.bodySmall)
+                Text("Size: ${zone.sizeMb} MB", style = MaterialTheme.typography.bodySmall)
                 if (isDownloaded)
                     Text("✓ Downloaded", color = MaterialTheme.colorScheme.primary)
             }
@@ -126,4 +132,3 @@ fun ZoneDrawerItem(
         }
     }
 }
-

@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -20,9 +22,12 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -31,29 +36,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.core.net.toFile
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.visuallocatizationapp.network.ApiClient
-import com.example.visuallocatizationapp.storage.ZoneStorage
 import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
-import kotlinx.coroutines.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,9 +96,8 @@ fun MainScreen() {
                 TopAppBar(
                     title = {
                         Text(
-                            "Visual Localization" + if (selectedZone != null)
-                                " (${selectedZone!!.name})"
-                            else ""
+                            "Visual Localization" +
+                                    (selectedZone?.let { " (${it.name})" } ?: "")
                         )
                     },
                     navigationIcon = {
@@ -207,7 +204,13 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                val previewView = PreviewView(ctx)
+                val previewView = PreviewView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
@@ -229,6 +232,7 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
                         Log.e("CameraRecordView", "Use case binding failed", exc)
                     }
                 }, ContextCompat.getMainExecutor(ctx))
+
                 previewView
             }
         )
@@ -279,9 +283,10 @@ fun FramePlaybackScreen(
 ) {
     val context = LocalContext.current
     var currentFrameIndex by remember { mutableStateOf(0) }
-    var isUploading by remember { mutableStateOf(false) }
+    var isProcessing by remember { mutableStateOf(false) }
     var locationData by remember { mutableStateOf<Triple<Double, Double, Double>?>(null) }
 
+    // auto-play thumbnails
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
             while (true) {
@@ -291,13 +296,16 @@ fun FramePlaybackScreen(
         }
     }
 
+    // If we already have a predicted location, show map
     locationData?.let { (lat, lon, conf) ->
-        MapScreen(
-            latitude = lat,
-            longitude = lon,
-            confidence = conf,
-            onBack = { locationData = null }
-        )
+        if (selectedZone != null) {
+            MapOfflineScreen(
+                zone = selectedZone,
+                latitude = lat,
+                longitude = lon,
+                onBack = { locationData = null }
+            )
+        }
         return
     }
 
@@ -319,10 +327,10 @@ fun FramePlaybackScreen(
                 .background(Color.Black.copy(alpha = 0.7f))
                 .padding(8.dp)
         ) {
-            items(frames) { frame ->
+            items(frames) { bmp ->
                 Image(
-                    bitmap = frame.asImageBitmap(),
-                    contentDescription = "Frame thumbnail",
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "Thumbnail",
                     modifier = Modifier
                         .size(80.dp)
                         .padding(4.dp),
@@ -345,17 +353,18 @@ fun FramePlaybackScreen(
 
         Button(
             onClick = {
-                if (!isUploading) {
-                    isUploading = true
-                    // simulate result, based on selected zone (for now random)
+                if (!isProcessing) {
+                    isProcessing = true
+                    // 👉 Here we currently simulate a model prediction.
+                    //    We use your test coordinates 54.903, 23.959.
                     CoroutineScope(Dispatchers.Main).launch {
-                        delay(2000)
-                        val lat = 54.6872 + Random().nextDouble() / 1000
-                        val lon = 25.2797 + Random().nextDouble() / 1000
-                        val conf = 0.85
-                        Log.d("Localization", "Predicted coordinates in zone: ${selectedZone?.name}")
+                        delay(1500) // pretend to process
+                        val lat = 54.903
+                        val lon = 23.959
+                        val conf = 0.9
+                        Log.d("Localization", "Predicted coords: $lat, $lon in zone ${selectedZone?.name}")
                         locationData = Triple(lat, lon, conf)
-                        isUploading = false
+                        isProcessing = false
                     }
                 }
             },
@@ -363,7 +372,7 @@ fun FramePlaybackScreen(
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
         ) {
-            Text(if (isUploading) "Processing..." else "Send")
+            Text(if (isProcessing) "Processing..." else "Send")
         }
 
         Text(
@@ -384,11 +393,15 @@ fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30
     val frames = mutableListOf<Bitmap>()
     try {
         retriever.setDataSource(context, videoUri)
-        val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-        val interval = duration / frameCount
+        val duration =
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                ?: 0L
+        val interval = if (frameCount > 0) duration / frameCount else duration
+
         for (i in 0 until frameCount) {
             val timeUs = (i * interval) * 1000
-            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            val frame =
+                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             frame?.let { frames.add(it) }
         }
     } catch (e: Exception) {
