@@ -46,11 +46,7 @@ object ZoneStorage {
                     inp.copyTo(out)
                 }
             }
-
-            // Extract ZIP into zones/<zoneId>/
             unzip(zipFile, getZoneDir(context, zoneId))
-
-            // Remove ZIP after extraction
             zipFile.delete()
 
             Log.d(TAG, "Zone $zoneId extracted")
