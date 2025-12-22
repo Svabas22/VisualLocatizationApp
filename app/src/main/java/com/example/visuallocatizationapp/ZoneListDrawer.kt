@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.visuallocatizationapp.network.ApiClient
-import com.example.visuallocatizationapp.storage.ZoneStorage
+import com.example.visuallocatizationapp.ZoneStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.ResponseBody

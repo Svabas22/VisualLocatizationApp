@@ -29,3 +29,8 @@ data class Zone(
 
     @SerializedName("size_mb") val sizeMb: Int
 )
+
+fun Zone.contains(lat: Double, lon: Double): Boolean {
+    return lat in bounds.minLat..bounds.maxLat &&
+            lon in bounds.minLon..bounds.maxLon
+}

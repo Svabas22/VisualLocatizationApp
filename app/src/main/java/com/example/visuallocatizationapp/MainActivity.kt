@@ -47,6 +47,7 @@ import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -162,6 +163,7 @@ fun CameraRecorderScreen(selectedZone: Zone?) {
                     withContext(Dispatchers.Main) {
                         extractedFrames = frames
                     }
+                    deleteVideoFile(uri)
                 }
             })
         }
@@ -183,6 +185,8 @@ fun CameraRecorderScreen(selectedZone: Zone?) {
                 videoUri = videoUri!!,
                 selectedZone = selectedZone,
                 onDiscard = {
+                    deleteVideoFile(videoUri!!)
+                    extractedFrames.forEach { it.recycle() }
                     videoUri = null
                     extractedFrames = emptyList()
                 }
@@ -285,14 +289,22 @@ fun FramePlaybackScreen(
     var currentFrameIndex by remember { mutableStateOf(0) }
     var isProcessing by remember { mutableStateOf(false) }
     var locationData by remember { mutableStateOf<Triple<Double, Double, Double>?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
 
     // auto-play thumbnails
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
-            while (true) {
+            while (isActive) {
                 delay(100)
                 currentFrameIndex = (currentFrameIndex + 1) % frames.size
             }
+        }
+    }
+
+    LaunchedEffect(statusMessage) {
+        if (statusMessage != null) {
+            delay(2000)
+            statusMessage = null
         }
     }
 
@@ -351,9 +363,16 @@ fun FramePlaybackScreen(
             Text("X", color = Color.White)
         }
 
+        val canSend = selectedZone != null && !isProcessing
+
         Button(
             onClick = {
                 if (!isProcessing) {
+                    if (selectedZone == null) {
+                        statusMessage = "Please select a zone first."
+                        return@Button
+                    }
+
                     isProcessing = true
                     // 👉 Here we currently simulate a model prediction.
                     //    We use your test coordinates 54.903, 23.959.
@@ -362,12 +381,19 @@ fun FramePlaybackScreen(
                         val lat = 54.903
                         val lon = 23.959
                         val conf = 0.9
-                        Log.d("Localization", "Predicted coords: $lat, $lon in zone ${selectedZone?.name}")
-                        locationData = Triple(lat, lon, conf)
+
+                        if (selectedZone.contains(lat, lon)) {
+                            Log.d("Localization", "Predicted coords: $lat, $lon in zone ${selectedZone.name}")
+                            locationData = Triple(lat, lon, conf)
+                        } else {
+                            statusMessage = "Prediction outside selected zone."
+                        }
+
                         isProcessing = false
                     }
                 }
             },
+            enabled = canSend,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
@@ -385,10 +411,27 @@ fun FramePlaybackScreen(
                 .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+
+        statusMessage?.let { msg ->
+            Text(
+                text = msg,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 120.dp)
+                    .background(Color.Black.copy(alpha = 0.7f), shape = CircleShape)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
     }
 }
 
-fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30): List<Bitmap> {
+fun extractFramesFromVideo(
+    context: Context,
+    videoUri: Uri,
+    frameCount: Int = 30,
+    maxSize: Int = 640
+): List<Bitmap> {
     val retriever = MediaMetadataRetriever()
     val frames = mutableListOf<Bitmap>()
     try {
@@ -400,9 +443,21 @@ fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30
 
         for (i in 0 until frameCount) {
             val timeUs = (i * interval) * 1000
-            val frame =
-                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            frame?.let { frames.add(it) }
+            val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            frame?.let {
+                val scaled = if (it.width > maxSize || it.height > maxSize) {
+                    val scale = minOf(maxSize.toFloat() / it.width, maxSize.toFloat() / it.height)
+                    Bitmap.createScaledBitmap(
+                        it,
+                        (it.width * scale).toInt(),
+                        (it.height * scale).toInt(),
+                        true
+                    ).also { scaledBmp -> it.recycle() }
+                } else {
+                    it
+                }
+                frames.add(scaled)
+            }
         }
     } catch (e: Exception) {
         Log.e("FrameExtractor", "Failed to extract frames", e)
@@ -410,4 +465,11 @@ fun extractFramesFromVideo(context: Context, videoUri: Uri, frameCount: Int = 30
         retriever.release()
     }
     return frames
+}
+
+fun deleteVideoFile(videoUri: Uri) {
+    if (videoUri.scheme == "file") {
+        val path = videoUri.path ?: return
+        runCatching { File(path).delete() }
+    }
 }

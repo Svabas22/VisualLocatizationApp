@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import com.example.visuallocatizationapp.storage.ZoneStorage
+import com.example.visuallocatizationapp.ZoneStorage
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
@@ -31,72 +31,84 @@ fun MapOfflineScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-
     remember { MapLibre.getInstance(context) }
 
     val zoneDir = remember { ZoneStorage.getZoneDirectory(context, zone.id) }
-    val styleFile = File(zoneDir, "style.json")
+    val stylePath = File(zoneDir, "style.json")
 
     val styleJson = remember {
-        if (styleFile.exists()) {
-            styleFile.readText()
-                .replace("{tileDir}", zoneDir.absolutePath.replace("\\", "/"))
+        if (stylePath.exists()) {
+            stylePath.readText().replace(
+                "{tileDir}",
+                zoneDir.absolutePath.replace("\\", "/")
+            )
         } else """{"version":8,"sources":{},"layers":[]}"""
     }
 
-    val targetLatLng = LatLng(latitude, longitude)
+    val target = LatLng(latitude, longitude)
 
+    // Create MapView once
     val mapView = remember {
-        MapView(context).apply {
-            onCreate(null)
-        }
+        MapView(context).apply { onCreate(null) }
     }
 
+    // Attach lifecycle to MapView
     DisposableEffect(lifecycleOwner) {
-
         val observer = object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) { mapView.onStart() }
-            override fun onResume(owner: LifecycleOwner) { mapView.onResume() }
-            override fun onPause(owner: LifecycleOwner) { mapView.onPause() }
-            override fun onStop(owner: LifecycleOwner) { mapView.onStop() }
-            override fun onDestroy(owner: LifecycleOwner) { mapView.onDestroy() }
+            override fun onStart(owner: LifecycleOwner) = mapView.onStart()
+            override fun onResume(owner: LifecycleOwner) = mapView.onResume()
+            override fun onPause(owner: LifecycleOwner) = mapView.onPause()
+            override fun onStop(owner: LifecycleOwner) = mapView.onStop()
+            override fun onDestroy(owner: LifecycleOwner) = mapView.onDestroy()
         }
 
         lifecycleOwner.lifecycle.addObserver(observer)
-
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onDestroy()
         }
     }
+
+    // Prevent loading style multiple times
+    var styleLoaded by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         Button(
             onClick = onBack,
             modifier = Modifier.padding(16.dp)
-        ) { Text("← Back") }
+        ) {
+            Text("← Back")
+        }
 
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             factory = { mapView },
             update = { view ->
 
-                view.getMapAsync { map ->
+                if (!styleLoaded) {
+                    styleLoaded = true  // ensure one-time execution
 
-                    map.setStyle(Style.Builder().fromJson(styleJson)) {
+                    view.getMapAsync { map ->
 
-                        val camera = CameraPosition.Builder()
-                            .target(targetLatLng)
-                            .zoom(zone.maxZoom.toDouble() - 1.0)
-                            .build()
+                        map.setStyle(
+                            Style.Builder().fromJson(styleJson)
+                        ) { style ->
 
-                        map.cameraPosition = camera
+                            // Camera after style loaded
+                            val camera = CameraPosition.Builder()
+                                .target(target)
+                                .zoom(zone.maxZoom.toDouble() - 1.0)
+                                .build()
+                            map.cameraPosition = camera
 
-                        map.addMarker(
-                            MarkerOptions()
-                                .position(targetLatLng)
-                                .title("Prediction")
-                        )
+                            // Add marker once
+                            map.addMarker(
+                                MarkerOptions()
+                                    .position(target)
+                                    .title("Prediction")
+                            )
+                        }
                     }
                 }
             }

@@ -1,8 +1,7 @@
-package com.example.visuallocatizationapp.storage
+package com.example.visuallocatizationapp
 
 import android.content.Context
 import android.util.Log
-import com.example.visuallocatizationapp.Zone
 import com.google.gson.Gson
 import java.io.File
 import java.io.InputStream
@@ -29,7 +28,14 @@ object ZoneStorage {
     }
 
     fun isZoneDownloaded(context: Context, zoneId: String): Boolean {
-        return getZoneDir(context, zoneId).exists()
+        return isZoneReady(context, zoneId)
+    }
+
+    fun isZoneReady(context: Context, zoneId: String): Boolean {
+        val dir = getZoneDir(context, zoneId)
+        val zoneJson = File(dir, "zone.json")
+        val styleJson = File(dir, "style.json")
+        return dir.exists() && zoneJson.exists() && styleJson.exists()
     }
 
     fun saveZoneZip(context: Context, zoneId: String, inputStream: InputStream) {
@@ -81,7 +87,8 @@ object ZoneStorage {
 
     fun listDownloadedZones(context: Context): List<String> {
         val root = getZonesDir(context)
-        return root.list()?.toList() ?: emptyList()
+        val zoneIds = root.list()?.toList() ?: emptyList()
+        return zoneIds.filter { isZoneReady(context, it) }
     }
 
     fun deleteZone(context: Context, zoneId: String) {
