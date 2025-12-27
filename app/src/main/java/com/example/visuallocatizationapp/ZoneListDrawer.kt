@@ -17,6 +17,7 @@ import com.example.visuallocatizationapp.network.ApiClient
 import com.example.visuallocatizationapp.ZoneStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
 
 @Composable
@@ -29,16 +30,26 @@ fun ZoneListDrawer(
     var downloadedZones by remember { mutableStateOf<List<String>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    suspend fun refresh() {
         try {
-            val response = ApiClient.instance.getZones()
-            if (response.isSuccessful) {
-                zones = response.body() ?: emptyList()
+            val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
+            val newZones = if (response.isSuccessful) {
+                response.body() ?: emptyList()
+            } else {
+                emptyList()
             }
-            downloadedZones = ZoneStorage.listDownloadedZones(context)
-        } catch (e: Exception) {
+            val newDownloadedZones = withContext(Dispatchers.IO) {
+                ZoneStorage.listDownloadedZones(context)
+            }
+            zones = newZones
+            downloadedZones = newDownloadedZones
+        }catch (e: Exception) {
             Log.e("Zones", "Error fetching zones", e)
         }
+    }
+
+    LaunchedEffect(Unit) {
+        refresh()
     }
 
     LazyColumn(
@@ -46,6 +57,20 @@ fun ZoneListDrawer(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Zones", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { scope.launch { refresh() } }) {
+                    Text("Refresh")
+                }
+            }
+        }
         items(zones) { zone ->
             val isDownloaded = downloadedZones.contains(zone.id)
             val isSelected = zone.id == selectedZoneId
@@ -58,14 +83,21 @@ fun ZoneListDrawer(
                     if (isDownloaded) {
                         onZoneSelected(zone)
                     } else {
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch {
                             try {
-                                val response = ApiClient.instance.downloadZone(zone.id)
+                                val response = withContext(Dispatchers.IO) {
+                                    ApiClient.instance.downloadZone(zone.id)
+                                }
                                 if (response.isSuccessful) {
                                     val body: ResponseBody = response.body()!!
-                                    ZoneStorage.saveZoneZip(context, zone.id, body.byteStream())
-                                    downloadedZones =
-                                        ZoneStorage.listDownloadedZones(context)
+                                    withContext(Dispatchers.IO) {
+                                        ZoneStorage.saveZoneZip(
+                                            context,
+                                            zone.id,
+                                            body.byteStream()
+                                        )
+                                    }
+                                    refresh()
                                 } else {
                                     Log.e("ZoneDownload", "Server error: ${response.code()}")
                                 }
@@ -76,9 +108,11 @@ fun ZoneListDrawer(
                     }
                 },
                 onDelete = {
-                    scope.launch(Dispatchers.IO) {
-                        ZoneStorage.deleteZone(context, zone.id)
-                        downloadedZones = ZoneStorage.listDownloadedZones(context)
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            ZoneStorage.deleteZone(context, zone.id)
+                        }
+                        refresh()
                     }
                 }
             )
@@ -132,3 +166,10 @@ fun ZoneDrawerItem(
         }
     }
 }
+
+
+
+
+
+
+
