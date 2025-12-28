@@ -2,18 +2,19 @@ package com.example.visuallocatizationapp.model
 
 import android.graphics.Bitmap
 import com.example.visuallocatizationapp.Zone
+import com.google.gson.annotations.SerializedName
 
 data class ModelInfo(
     val id: String,
     val version: String,
     val arch: String,
     val engine: String,          // "onnx", "tflite", "torch"
-    val inputSize: Int,
+    @SerializedName("input_size") val inputSize: Int,
     val mean: List<Float>,
     val std: List<Float>,
     val centerCrop: Boolean = true,
-    val descriptorDim: Int = 0,
-    val inputLayout: String = "nhwc",
+    @SerializedName("descriptor_dim") val descriptorDim: Int = 0,
+    @SerializedName("input_layout") val inputLayout: String? = "nhwc",
     val database: DatabaseInfo? = null
 )
 
@@ -40,3 +41,10 @@ data class PredictionResult(
 sealed interface LocalizationModel {
     suspend fun predict(frames: List<Bitmap>, zone: Zone): PredictionResult
 }
+
+data class LoadedModel(
+    val info: ModelInfo,
+    val session: ai.onnxruntime.OrtSession?,
+    val db: FloatArray?,
+    val dbRows: List<DbRow>
+)

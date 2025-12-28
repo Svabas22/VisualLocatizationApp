@@ -163,7 +163,7 @@ fun CameraRecorderScreen(selectedZone: Zone?) {
             CameraRecordView(onVideoRecorded = { uri ->
                 videoUri = uri
                 CoroutineScope(Dispatchers.IO).launch {
-                    val frames = extractFramesFromVideo(context, uri, frameCount = 30)
+                    val frames = extractFramesFromVideo(context, uri, frameCount = 12, maxSize = 320)
                     withContext(Dispatchers.Main) {
                         extractedFrames = frames
                     }
@@ -297,7 +297,6 @@ fun FramePlaybackScreen(
     var loadedModel by remember { mutableStateOf<LoadedModel?>(null) }
     var modelStatus by remember { mutableStateOf("Model not loaded") }
 
-    // auto-play thumbnails
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
             while (isActive) {
@@ -326,8 +325,7 @@ fun FramePlaybackScreen(
         }
     }
 
-    // If we already have a predicted location, show map
-    locationData?.let { (lat, lon, conf) ->
+    locationData?.let { (lat, lon, _) ->
         if (selectedZone != null) {
             MapOfflineScreen(
                 zone = selectedZone,
@@ -397,12 +395,14 @@ fun FramePlaybackScreen(
                             val keyFrames = frames.take(8)
                             OnnxLocalizationModel(loadedModel!!).predict(keyFrames, selectedZone)
                         } else {
-                            // Fallback to legacy fake coords
                             PredictionResult(54.903, 23.959, 0.9)
                         }
 
                         if (selectedZone.contains(result.latitude, result.longitude)) {
-                            Log.d("Localization", "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}")
+                            Log.d(
+                                "Localization",
+                                "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}"
+                            )
                             locationData = Triple(result.latitude, result.longitude, result.confidence)
                         } else {
                             statusMessage = "Prediction outside selected zone."
@@ -458,8 +458,8 @@ fun FramePlaybackScreen(
 fun extractFramesFromVideo(
     context: Context,
     videoUri: Uri,
-    frameCount: Int = 30,
-    maxSize: Int = 640
+    frameCount: Int = 12,
+    maxSize: Int = 320
 ): List<Bitmap> {
     val retriever = MediaMetadataRetriever()
     val frames = mutableListOf<Bitmap>()
