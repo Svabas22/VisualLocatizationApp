@@ -11,13 +11,14 @@ import ai.onnxruntime.OrtSession
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.FloatBuffer
 import kotlin.math.sqrt
 
 data class LoadedModel(
     val info: ModelInfo,
-    val db: FloatArray,
-    val dbRows: List<DbRow>,
-    val session: OrtSession
+    val session: OrtSession?,
+    val db: FloatArray?,
+    val dbRows: List<DbRow>
 )
 
 object ModelLoader {
@@ -25,68 +26,86 @@ object ModelLoader {
 
     fun load(context: Context, zone: Zone): LoadedModel? {
         val zoneDir = File(context.filesDir, "zones/${zone.id}")
-        val metaFile = File(zoneDir, "model/metadata_resnet50.json") // adjust if dynamic
-        if (!metaFile.exists()) {
-            Log.w(TAG, "metadata not found for zone ${zone.id}")
+        val metaFile = findFirst(
+            listOf(
+                File(zoneDir, "model/metadata.json"),
+                File(zoneDir, "model/metadata_resnet50.json")
+            )
+        ) ?: return null.also { Log.w(TAG, "No metadata found for ${zone.id}") }
+
+        val meta = runCatching {
+            Gson().fromJson(metaFile.readText(), ModelInfo::class.java)
+        }.getOrElse {
+            Log.e(TAG, "Failed to parse metadata", it)
             return null
         }
 
-        val info = Gson().fromJson(metaFile.readText(), ModelInfo::class.java)
+        val weightsFile = findFirst(
+            listOf(
+                File(zoneDir, "model/weights.onnx"),
+                File(zoneDir, "model/weights_resnet50.onnx")
+            )
+        )
 
-        val dbFile = File(zoneDir, "model/${info.database.file}")
-        val idxFile = File(zoneDir, "model/${info.database.index}")
-        val weightsFile = File(zoneDir, "model/weights_resnet50.onnx") // adjust if dynamic
+        val session = if (meta.engine.equals("onnx", ignoreCase = true) && weightsFile != null) {
+            runCatching {
+                OrtEnvironment.getEnvironment().createSession(weightsFile.absolutePath, OrtSession.SessionOptions())
+            }.getOrElse {
+                Log.e(TAG, "Failed to load ONNX session", it)
+                null
+            }
+        } else null
 
-        if (!dbFile.exists() || !idxFile.exists() || !weightsFile.exists()) {
-            Log.e(TAG, "Model assets missing in zone ${zone.id}")
-            return null
-        }
+        val (db, rows) = loadDb(zoneDir, meta)
 
-        val db = loadDb(dbFile, info.descriptorDim)
-        val rows = loadIndex(idxFile)
-        val env = OrtEnvironment.getEnvironment()
-        val session = env.createSession(weightsFile.absolutePath, OrtSession.SessionOptions())
-
-        return LoadedModel(info, db, rows, session)
+        return LoadedModel(meta, session, db, rows)
     }
 
-    private fun loadDb(dbFile: File, dim: Int): FloatArray {
+    private fun findFirst(files: List<File>): File? = files.firstOrNull { it.exists() }
+
+    private fun loadDb(zoneDir: File, meta: ModelInfo): Pair<FloatArray?, List<DbRow>> {
+        val dbInfo = meta.database ?: return null to emptyList()
+        val dbFile = File(zoneDir, "model/${dbInfo.file}")
+        val idxFile = File(zoneDir, "model/${dbInfo.index}")
+        if (!dbFile.exists() || !idxFile.exists()) return null to emptyList()
+
         val bytes = dbFile.readBytes()
         val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val count = bytes.size / 4
-        val out = FloatArray(count)
+        val out = FloatArray(bytes.size / 4)
         buf.asFloatBuffer().get(out)
-        require(count % dim == 0) { "DB length not divisible by descriptor_dim" }
-        return out
-    }
 
-    private fun loadIndex(idxFile: File): List<DbRow> {
         val type = object : TypeToken<List<DbRow>>() {}.type
-        return Gson().fromJson(idxFile.readText(), type)
+        val rows: List<DbRow> = Gson().fromJson(idxFile.readText(), type)
+        return out to rows
     }
 }
 
 class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel {
-    private val env: OrtEnvironment = loaded.session.environment
+    private val session = loaded.session
+    private val env: OrtEnvironment? = session?.environment
     private val info = loaded.info
     private val db = loaded.db
     private val rows = loaded.dbRows
-    private val dim = info.descriptorDim
+    private val dim = if (info.descriptorDim > 0) info.descriptorDim else db?.let { it.size / (rows.size.coerceAtLeast(1)) } ?: 0
 
     override suspend fun predict(frames: List<android.graphics.Bitmap>, zone: Zone): PredictionResult {
-        // take a few frames to reduce latency
+        if (session == null) {
+            return PredictionResult(zone.center.lat, zone.center.lon, 0.0)
+        }
         val subset = frames.take(4)
-        val descriptors = subset.map { runEncoder(it) }
+        val descriptors = subset.mapNotNull { runEncoder(it) }
+        if (descriptors.isEmpty()) return PredictionResult(zone.center.lat, zone.center.lon, 0.0)
         val query = averageAndNormalize(descriptors)
+
+        if (db == null || rows.isEmpty() || dim == 0) {
+            return PredictionResult(zone.center.lat, zone.center.lon, 0.0)
+        }
         val (bestIdx, bestSim) = top1Cosine(query, db, dim)
-        val row = rows.getOrNull(bestIdx)
-            ?: return PredictionResult(zone.center.lat, zone.center.lon, 0.0)
-        val lat = row.lat
-        val lon = row.lon
-        return PredictionResult(lat, lon, bestSim)
+        val row = rows.getOrNull(bestIdx) ?: return PredictionResult(zone.center.lat, zone.center.lon, 0.0)
+        return PredictionResult(row.lat, row.lon, bestSim.toDouble())
     }
 
-    private fun runEncoder(bmp: android.graphics.Bitmap): FloatArray {
+    private fun runEncoder(bmp: android.graphics.Bitmap): FloatArray? {
         val input = preprocessFrame(
             bmp,
             inputSize = info.inputSize,
@@ -101,12 +120,30 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             else -> longArrayOf(1, info.inputSize.toLong(), info.inputSize.toLong(), 3)
         }
 
-        OnnxTensor.createTensor(env, input, shape).use { tensor ->
-            val results = loaded.session.run(mapOf("input" to tensor))
-            val out = results[0].value as Array<FloatArray>
-            val vec = out[0]
-            return l2Normalize(vec)
-        }
+        val environment = env ?: return null
+
+        return runCatching {
+            val fb: FloatBuffer = FloatBuffer.wrap(input)
+            OnnxTensor.createTensor(environment, fb, shape).use { tensor ->
+                session!!.run(mapOf(session.inputNames.first() to tensor)).use { results ->
+                    val out = results.first().value
+                    when (out) {
+                        is Array<*> -> {
+                            val first = out.firstOrNull()
+                            when (first) {
+                                is FloatArray -> l2Normalize(first)
+                                is Array<*> -> (first as? Array<*>)?.firstOrNull()?.let { arr ->
+                                    (arr as? FloatArray)?.let { l2Normalize(it) }
+                                }
+                                else -> null
+                            }
+                        }
+                        is FloatArray -> l2Normalize(out)
+                        else -> null
+                    }
+                }
+            }
+        }.getOrNull()
     }
 
     private fun l2Normalize(vec: FloatArray): FloatArray {
@@ -117,12 +154,12 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
     }
 
     private fun averageAndNormalize(vectors: List<FloatArray>): FloatArray {
-        val out = FloatArray(dim)
+        val out = FloatArray(vectors.first().size)
         for (v in vectors) {
-            for (i in 0 until dim) out[i] += v[i]
+            for (i in v.indices) out[i] += v[i]
         }
         val invN = 1f / vectors.size
-        for (i in 0 until dim) out[i] *= invN
+        for (i in out.indices) out[i] *= invN
         return l2Normalize(out)
     }
 
