@@ -43,6 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.visuallocatizationapp.model.LoadedModel
+import com.example.visuallocatizationapp.model.ModelLoader
+import com.example.visuallocatizationapp.model.OnnxLocalizationModel
+import com.example.visuallocatizationapp.model.PredictionResult
 import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
 import com.example.visuallocatizationapp.model.LoadedModel
 import com.example.visuallocatizationapp.model.ModelLoader
