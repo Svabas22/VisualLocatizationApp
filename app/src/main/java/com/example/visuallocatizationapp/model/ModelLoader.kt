@@ -82,7 +82,6 @@ object ModelLoader {
 
 class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel {
     private val session = loaded.session
-    private val env: OrtEnvironment? = session?.environment
     private val info = loaded.info
     private val db = loaded.db
     private val rows = loaded.dbRows
@@ -120,11 +119,9 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             else -> longArrayOf(1, info.inputSize.toLong(), info.inputSize.toLong(), 3)
         }
 
-        val environment = env ?: return null
-
         return runCatching {
             val fb: FloatBuffer = FloatBuffer.wrap(input)
-            OnnxTensor.createTensor(environment, fb, shape).use { tensor ->
+            OnnxTensor.createTensor(OrtEnvironment.getEnvironment(), fb, shape).use { tensor ->
                 session!!.run(mapOf(session.inputNames.first() to tensor)).use { results ->
                     val out = results.first().value
                     when (out) {

@@ -48,6 +48,10 @@ import com.example.visuallocatizationapp.model.ModelLoader
 import com.example.visuallocatizationapp.model.OnnxLocalizationModel
 import com.example.visuallocatizationapp.model.PredictionResult
 import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
+import com.example.visuallocatizationapp.model.LoadedModel
+import com.example.visuallocatizationapp.model.ModelLoader
+import com.example.visuallocatizationapp.model.OnnxLocalizationModel
+import com.example.visuallocatizationapp.model.PredictionResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -402,10 +406,7 @@ fun FramePlaybackScreen(
                         }
 
                         if (selectedZone.contains(result.latitude, result.longitude)) {
-                            Log.d(
-                                "Localization",
-                                "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}"
-                            )
+                            Log.d("Localization", "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}")
                             locationData = Triple(result.latitude, result.longitude, result.confidence)
                         } else {
                             statusMessage = "Prediction outside selected zone."
