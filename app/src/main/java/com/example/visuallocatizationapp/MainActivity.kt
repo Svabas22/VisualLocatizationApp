@@ -296,6 +296,7 @@ fun FramePlaybackScreen(
     var loadedModel by remember { mutableStateOf<LoadedModel?>(null) }
     var modelStatus by remember { mutableStateOf("Model not loaded") }
 
+    // auto-play thumbnails
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
             while (isActive) {
@@ -312,6 +313,7 @@ fun FramePlaybackScreen(
         }
     }
 
+    // load model when zone changes
     LaunchedEffect(selectedZone) {
         if (selectedZone != null) {
             val lm = ModelLoader.load(context, selectedZone)
@@ -323,6 +325,8 @@ fun FramePlaybackScreen(
             modelStatus = "No zone selected"
         }
     }
+
+    // If we already have a predicted location, show map
     locationData?.let { (lat, lon, conf) ->
         if (selectedZone != null) {
             MapOfflineScreen(
@@ -373,9 +377,7 @@ fun FramePlaybackScreen(
                 .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
                 .clickable { onDiscard() },
             contentAlignment = Alignment.Center
-        ) {
-            Text("X", color = Color.White)
-        }
+        ) { Text("X", color = Color.White) }
 
         val canSend = selectedZone != null && !isProcessing
 
@@ -398,7 +400,10 @@ fun FramePlaybackScreen(
                         }
 
                         if (selectedZone.contains(result.latitude, result.longitude)) {
-                            Log.d("Localization", "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}")
+                            Log.d(
+                                "Localization",
+                                "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}"
+                            )
                             locationData = Triple(result.latitude, result.longitude, result.confidence)
                         } else {
                             statusMessage = "Prediction outside selected zone."
@@ -412,9 +417,7 @@ fun FramePlaybackScreen(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
-        ) {
-            Text(if (isProcessing) "Processing..." else "Send")
-        }
+        ) { Text(if (isProcessing) "Processing..." else "Send") }
 
         Text(
             text = "Frame ${currentFrameIndex + 1}/${frames.size}" +
@@ -426,6 +429,7 @@ fun FramePlaybackScreen(
                 .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+
         Text(
             text = modelStatus,
             color = Color.White,
@@ -449,6 +453,7 @@ fun FramePlaybackScreen(
         }
     }
 }
+
 
 fun extractFramesFromVideo(
     context: Context,

@@ -77,5 +77,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation("com.mapbox.maps:android-ndk27:11.16.6")
     implementation("org.maplibre.gl:android-sdk:11.3.0")
+    implementation("ai.onnxruntime:onnxruntime-android:1.18.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.5")
 
 }
