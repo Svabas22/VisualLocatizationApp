@@ -16,6 +16,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
+import com.example.visuallocatizationapp.model.LoadedModel
+import com.example.visuallocatizationapp.model.ModelLoader
+import com.example.visuallocatizationapp.model.PredictionResult
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
@@ -290,8 +293,9 @@ fun FramePlaybackScreen(
     var isProcessing by remember { mutableStateOf(false) }
     var locationData by remember { mutableStateOf<Triple<Double, Double, Double>?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    var loadedModel by remember { mutableStateOf<LoadedModel?>(null) }
+    var modelStatus by remember { mutableStateOf("Model not loaded") }
 
-    // auto-play thumbnails
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
             while (isActive) {
@@ -308,7 +312,17 @@ fun FramePlaybackScreen(
         }
     }
 
-    // If we already have a predicted location, show map
+    LaunchedEffect(selectedZone) {
+        if (selectedZone != null) {
+            val lm = ModelLoader.load(context, selectedZone)
+            loadedModel = lm
+            modelStatus = lm?.let { "Model: ${it.info.id} v${it.info.version} (${it.info.engine})" }
+                ?: "Model not available for this zone"
+        } else {
+            loadedModel = null
+            modelStatus = "No zone selected"
+        }
+    }
     locationData?.let { (lat, lon, conf) ->
         if (selectedZone != null) {
             MapOfflineScreen(
@@ -374,17 +388,18 @@ fun FramePlaybackScreen(
                     }
 
                     isProcessing = true
-                    // 👉 Here we currently simulate a model prediction.
-                    //    We use your test coordinates 54.903, 23.959.
                     CoroutineScope(Dispatchers.Main).launch {
-                        delay(1500) // pretend to process
-                        val lat = 54.903
-                        val lon = 23.959
-                        val conf = 0.9
+                        val result: PredictionResult = if (loadedModel != null) {
+                            val keyFrames = frames.take(8)
+                            loadedModel!!.impl.predict(keyFrames, selectedZone)
+                        } else {
+                            // Fallback to legacy fake coords
+                            PredictionResult(54.903, 23.959, 0.9)
+                        }
 
-                        if (selectedZone.contains(lat, lon)) {
-                            Log.d("Localization", "Predicted coords: $lat, $lon in zone ${selectedZone.name}")
-                            locationData = Triple(lat, lon, conf)
+                        if (selectedZone.contains(result.latitude, result.longitude)) {
+                            Log.d("Localization", "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}")
+                            locationData = Triple(result.latitude, result.longitude, result.confidence)
                         } else {
                             statusMessage = "Prediction outside selected zone."
                         }
@@ -410,6 +425,15 @@ fun FramePlaybackScreen(
                 .padding(16.dp)
                 .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+        Text(
+            text = modelStatus,
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 80.dp)
+                .background(Color.Black.copy(alpha = 0.6f), shape = CircleShape)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         )
 
         statusMessage?.let { msg ->
