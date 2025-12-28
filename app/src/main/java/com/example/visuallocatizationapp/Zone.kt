@@ -32,5 +32,5 @@ data class Zone(
 
 fun Zone.contains(lat: Double, lon: Double): Boolean {
     return lat in bounds.minLat..bounds.maxLat &&
-            lon in bounds.minLon..bounds.maxLon
+        lon in bounds.minLon..bounds.maxLon
 }
