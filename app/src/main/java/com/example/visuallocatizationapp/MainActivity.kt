@@ -16,9 +16,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
-import com.example.visuallocatizationapp.model.LoadedModel
-import com.example.visuallocatizationapp.model.ModelLoader
-import com.example.visuallocatizationapp.model.PredictionResult
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
@@ -46,6 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.visuallocatizationapp.model.LoadedModel
+import com.example.visuallocatizationapp.model.ModelLoader
+import com.example.visuallocatizationapp.model.OnnxLocalizationModel
+import com.example.visuallocatizationapp.model.PredictionResult
 import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -313,7 +314,6 @@ fun FramePlaybackScreen(
         }
     }
 
-    // load model when zone changes
     LaunchedEffect(selectedZone) {
         if (selectedZone != null) {
             val lm = ModelLoader.load(context, selectedZone)
@@ -377,7 +377,9 @@ fun FramePlaybackScreen(
                 .background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
                 .clickable { onDiscard() },
             contentAlignment = Alignment.Center
-        ) { Text("X", color = Color.White) }
+        ) {
+            Text("X", color = Color.White)
+        }
 
         val canSend = selectedZone != null && !isProcessing
 
@@ -393,7 +395,7 @@ fun FramePlaybackScreen(
                     CoroutineScope(Dispatchers.Main).launch {
                         val result: PredictionResult = if (loadedModel != null) {
                             val keyFrames = frames.take(8)
-                            loadedModel!!.impl.predict(keyFrames, selectedZone)
+                            OnnxLocalizationModel(loadedModel!!).predict(keyFrames, selectedZone)
                         } else {
                             // Fallback to legacy fake coords
                             PredictionResult(54.903, 23.959, 0.9)
@@ -417,7 +419,9 @@ fun FramePlaybackScreen(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
-        ) { Text(if (isProcessing) "Processing..." else "Send") }
+        ) {
+            Text(if (isProcessing) "Processing..." else "Send")
+        }
 
         Text(
             text = "Frame ${currentFrameIndex + 1}/${frames.size}" +
@@ -453,7 +457,6 @@ fun FramePlaybackScreen(
         }
     }
 }
-
 
 fun extractFramesFromVideo(
     context: Context,
