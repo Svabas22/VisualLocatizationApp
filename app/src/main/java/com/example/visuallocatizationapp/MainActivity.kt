@@ -48,10 +48,6 @@ import com.example.visuallocatizationapp.model.ModelLoader
 import com.example.visuallocatizationapp.model.OnnxLocalizationModel
 import com.example.visuallocatizationapp.model.PredictionResult
 import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
-import com.example.visuallocatizationapp.model.LoadedModel
-import com.example.visuallocatizationapp.model.ModelLoader
-import com.example.visuallocatizationapp.model.OnnxLocalizationModel
-import com.example.visuallocatizationapp.model.PredictionResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
