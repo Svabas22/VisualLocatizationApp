@@ -1,17 +1,24 @@
 package com.example.visuallocatizationapp.network
 
-import com.example.visuallocatizationapp.Zone
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Multipart
+import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Url
-import java.util.concurrent.TimeUnit
 
 interface ApiService {
-    // Return raw body so we can parse array or object-wrapped lists manually
+    @Multipart
+    @POST("/upload")
+    suspend fun uploadVideo(
+        @Part video: MultipartBody.Part
+    ): Response<UploadResponse>
+
     @GET("zones.json")
     suspend fun getZones(): Response<ResponseBody>
 
@@ -20,15 +27,13 @@ interface ApiService {
 }
 
 object ApiClient {
-    // Public container URL (ends with a slash)
     private const val BASE_URL = "https://zones.blob.core.windows.net/zonekaunas/"
-
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 
@@ -40,4 +45,7 @@ object ApiClient {
             .build()
             .create(ApiService::class.java)
     }
+
+    val baseUrl: String
+        get() = BASE_URL
 }

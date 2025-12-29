@@ -13,10 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.example.visuallocatizationapp.network.ApiClient
 import com.example.visuallocatizationapp.ZoneStorage
+import com.example.visuallocatizationapp.network.ApiClient
 import com.google.gson.Gson
-import com.google.gson.JsonParser
+import com.google.gson.JsonElement
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,31 +34,73 @@ fun ZoneListDrawer(
     var downloadStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val gson = remember { Gson() }
-    val listType = remember { object : TypeToken<List<Zone>>() {}.type }
+
+    fun parseZones(json: String?): List<Zone> {
+        if (json.isNullOrBlank()) return emptyList()
+
+        fun parseElement(elem: JsonElement): List<Zone> {
+            val listType = object : TypeToken<List<Zone>>() {}.type
+            val mapType = object : TypeToken<Map<String, Zone>>() {}.type
+
+            return when {
+                elem.isJsonArray -> gson.fromJson(elem, listType)
+                elem.isJsonObject && elem.asJsonObject.has("zones") -> {
+                    val zonesElement = elem.asJsonObject.get("zones")
+                    when {
+                        zonesElement != null && zonesElement.isJsonArray -> gson.fromJson(zonesElement, listType)
+                        zonesElement != null && zonesElement.isJsonObject -> {
+                            val map: Map<String, Zone> = gson.fromJson(zonesElement, mapType)
+                            map.values.toList()
+                        }
+                        else -> emptyList()
+                    }
+                }
+                elem.isJsonObject -> {
+                    val map: Map<String, Zone> = gson.fromJson(elem, mapType)
+                    map.values.toList()
+                }
+                elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
+                    val inner = elem.asString?.trim()
+                    if (!inner.isNullOrBlank() && (inner.startsWith("{") || inner.startsWith("["))) {
+                        val innerElem = runCatching { gson.fromJson(inner, JsonElement::class.java) }.getOrNull()
+                        if (innerElem != null) return parseElement(innerElem)
+                    }
+                    emptyList()
+                }
+                else -> emptyList()
+            }
+        }
+
+        return try {
+            val root = gson.fromJson(json, JsonElement::class.java) ?: return emptyList()
+            parseElement(root)
+        } catch (e: Exception) {
+            Log.e("Zones", "Failed to parse zones payload", e)
+            emptyList()
+        }
+    }
 
     suspend fun refresh() {
-        // Load local zones first (so they persist offline/restart)
-        val localZones = withContext(Dispatchers.IO) {
+        val newDownloadedZones = withContext(Dispatchers.IO) {
             ZoneStorage.listDownloadedZones(context)
-                .mapNotNull { ZoneStorage.getZoneJson(context, it) }
         }
-        zones = localZones
-        downloadedZones = localZones.map { it.id }
 
-        // Fetch remote zones.json and merge
-        val fetchedZones: List<Zone> = try {
+        val localZones = newDownloadedZones.mapNotNull { zoneId ->
+            ZoneStorage.getZoneJson(context, zoneId)
+        }
+
+        val newZones = try {
             val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
             if (response.isSuccessful) {
-                val bodyStr = response.body()?.string()
-                val jsonEl = bodyStr?.let { JsonParser.parseString(it) }
-                when {
-                    jsonEl == null -> emptyList()
-                    jsonEl.isJsonArray -> gson.fromJson(jsonEl, listType)
-                    jsonEl.isJsonObject && jsonEl.asJsonObject.has("zones") ->
-                        gson.fromJson(jsonEl.asJsonObject.get("zones"), listType)
-                    else -> emptyList()
+                val bodyString = withContext(Dispatchers.IO) { response.body()?.string() }
+                if (bodyString.isNullOrBlank()) {
+                    Log.e("Zones", "Zones response was empty")
+                    emptyList()
+                } else {
+                    parseZones(bodyString)
                 }
             } else {
+                Log.e("Zones", "Failed to fetch zones: ${response.code()} ${response.errorBody()?.string()}")
                 emptyList()
             }
         } catch (e: Exception) {
@@ -66,13 +108,10 @@ fun ZoneListDrawer(
             emptyList()
         }
 
-        val merged = (fetchedZones + localZones)
-            .associateBy { it.id }
-            .values
-            .toList()
+        val mergedZones = (newZones + localZones).associateBy { it.id }.values.toList()
 
-        zones = merged
-        downloadedZones = localZones.map { it.id }
+        zones = mergedZones
+        downloadedZones = newDownloadedZones
     }
 
     LaunchedEffect(Unit) {
@@ -123,12 +162,16 @@ fun ZoneListDrawer(
                         onZoneSelected(zone)
                     } else {
                         scope.launch {
+                            val downloadUrl = zone.downloadUrl ?: "${ApiClient.baseUrl}${zone.id}.zip"
+                            if (downloadUrl.isBlank()) {
+                                Log.e("ZoneDownload", "No download URL available for zone ${zone.id}")
+                                return@launch
+                            }
+
                             try {
                                 downloadStatus = "Downloading ${zone.name}..."
-                                val url = zone.downloadUrl
-                                    ?: throw IllegalStateException("Missing download_url for zone ${zone.id}")
                                 val response = withContext(Dispatchers.IO) {
-                                    ApiClient.instance.downloadZone(url)
+                                    ApiClient.instance.downloadZone(downloadUrl)
                                 }
                                 if (response.isSuccessful) {
                                     val body: ResponseBody = response.body()!!

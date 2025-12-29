@@ -15,24 +15,23 @@ data class ZoneCenter(
 )
 
 data class Zone(
-    @SerializedName("zone_id") val id: String,
-    val name: String,
+    @SerializedName(value = "zone_id", alternate = ["id"]) val id: String,
+    @SerializedName(value = "name", alternate = ["zone_name"]) val name: String,
 
     @SerializedName("min_zoom") val minZoom: Int,
     @SerializedName("max_zoom") val maxZoom: Int,
 
     @SerializedName("tile_format") val tileFormat: String,
     @SerializedName("tile_structure") val tileStructure: String,
+    @SerializedName("download_url") val downloadUrl: String? = null,
 
     val bounds: ZoneBounds,
     val center: ZoneCenter,
 
-    @SerializedName("size_mb") val sizeMb: Int,
-
-    @SerializedName("download_url") val downloadUrl: String? = null
+    @SerializedName("size_mb") val sizeMb: Int
 )
 
 fun Zone.contains(lat: Double, lon: Double): Boolean {
     return lat in bounds.minLat..bounds.maxLat &&
-        lon in bounds.minLon..bounds.maxLon
+            lon in bounds.minLon..bounds.maxLon
 }
