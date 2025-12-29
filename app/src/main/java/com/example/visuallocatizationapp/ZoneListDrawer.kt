@@ -15,6 +15,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.visuallocatizationapp.network.ApiClient
 import com.example.visuallocatizationapp.ZoneStorage
+import com.google.gson.Gson
+import com.google.gson.JsonParser
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,9 +33,11 @@ fun ZoneListDrawer(
     var downloadedZones by remember { mutableStateOf<List<String>>(emptyList()) }
     var downloadStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val gson = remember { Gson() }
+    val listType = remember { object : TypeToken<List<Zone>>() {}.type }
 
     suspend fun refresh() {
-        // load local first
+        // Load local zones first (so they persist offline/restart)
         val localZones = withContext(Dispatchers.IO) {
             ZoneStorage.listDownloadedZones(context)
                 .mapNotNull { ZoneStorage.getZoneJson(context, it) }
@@ -40,10 +45,22 @@ fun ZoneListDrawer(
         zones = localZones
         downloadedZones = localZones.map { it.id }
 
-        // fetch remote and merge
+        // Fetch remote zones.json and merge
         val fetchedZones: List<Zone> = try {
             val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
-            if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+            if (response.isSuccessful) {
+                val bodyStr = response.body()?.string()
+                val jsonEl = bodyStr?.let { JsonParser.parseString(it) }
+                when {
+                    jsonEl == null -> emptyList()
+                    jsonEl.isJsonArray -> gson.fromJson(jsonEl, listType)
+                    jsonEl.isJsonObject && jsonEl.asJsonObject.has("zones") ->
+                        gson.fromJson(jsonEl.asJsonObject.get("zones"), listType)
+                    else -> emptyList()
+                }
+            } else {
+                emptyList()
+            }
         } catch (e: Exception) {
             Log.e("Zones", "Error fetching zones", e)
             emptyList()
