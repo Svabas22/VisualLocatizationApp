@@ -43,7 +43,7 @@ object ApiClient {
     //private const val BASE_URL = "http://10.0.2.2:5000/"
     //private const val BASE_URL = "http://192.168.1.233:5000/"
     //private const val BASE_URL = "http://192.168.1.105:5000/"
-    private const val BASE_URL = "https://zones.blob.core.windows.net/zonekaunas/"
+    private const val BASE_URL = "https://zones.blob.core.windows.net/zonekaunas"
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
