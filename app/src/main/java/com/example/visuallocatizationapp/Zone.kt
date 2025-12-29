@@ -27,7 +27,9 @@ data class Zone(
     val bounds: ZoneBounds,
     val center: ZoneCenter,
 
-    @SerializedName("size_mb") val sizeMb: Int
+    @SerializedName("size_mb") val sizeMb: Int,
+
+    @SerializedName("download_url") val downloadUrl: String? = null
 )
 
 fun Zone.contains(lat: Double, lon: Double): Boolean {

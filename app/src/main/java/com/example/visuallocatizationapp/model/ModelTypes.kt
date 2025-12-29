@@ -41,10 +41,3 @@ data class PredictionResult(
 sealed interface LocalizationModel {
     suspend fun predict(frames: List<Bitmap>, zone: Zone): PredictionResult
 }
-
-data class LoadedModel(
-    val info: ModelInfo,
-    val session: ai.onnxruntime.OrtSession?,
-    val db: FloatArray?,
-    val dbRows: List<DbRow>
-)

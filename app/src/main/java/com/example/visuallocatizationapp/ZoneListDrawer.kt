@@ -32,21 +32,30 @@ fun ZoneListDrawer(
     val scope = rememberCoroutineScope()
 
     suspend fun refresh() {
-        try {
-            val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
-            val newZones = if (response.isSuccessful) {
-                response.body() ?: emptyList()
-            } else {
-                emptyList()
-            }
-            val newDownloadedZones = withContext(Dispatchers.IO) {
-                ZoneStorage.listDownloadedZones(context)
-            }
-            zones = newZones
-            downloadedZones = newDownloadedZones
-        }catch (e: Exception) {
-            Log.e("Zones", "Error fetching zones", e)
+        // load local first
+        val localZones = withContext(Dispatchers.IO) {
+            ZoneStorage.listDownloadedZones(context)
+                .mapNotNull { ZoneStorage.getZoneJson(context, it) }
         }
+        zones = localZones
+        downloadedZones = localZones.map { it.id }
+
+        // fetch remote and merge
+        val fetchedZones: List<Zone> = try {
+            val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
+            if (response.isSuccessful) response.body() ?: emptyList() else emptyList()
+        } catch (e: Exception) {
+            Log.e("Zones", "Error fetching zones", e)
+            emptyList()
+        }
+
+        val merged = (fetchedZones + localZones)
+            .associateBy { it.id }
+            .values
+            .toList()
+
+        zones = merged
+        downloadedZones = localZones.map { it.id }
     }
 
     LaunchedEffect(Unit) {
@@ -99,8 +108,10 @@ fun ZoneListDrawer(
                         scope.launch {
                             try {
                                 downloadStatus = "Downloading ${zone.name}..."
+                                val url = zone.downloadUrl
+                                    ?: throw IllegalStateException("Missing download_url for zone ${zone.id}")
                                 val response = withContext(Dispatchers.IO) {
-                                    ApiClient.instance.downloadZone(zone.id)
+                                    ApiClient.instance.downloadZone(url)
                                 }
                                 if (response.isSuccessful) {
                                     val body: ResponseBody = response.body()!!
