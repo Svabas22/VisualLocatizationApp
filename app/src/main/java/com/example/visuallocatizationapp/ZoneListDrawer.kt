@@ -28,6 +28,7 @@ fun ZoneListDrawer(
     val context = LocalContext.current
     var zones by remember { mutableStateOf<List<Zone>>(emptyList()) }
     var downloadedZones by remember { mutableStateOf<List<String>>(emptyList()) }
+    var downloadStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     suspend fun refresh() {
@@ -70,6 +71,18 @@ fun ZoneListDrawer(
                     Text("Refresh")
                 }
             }
+            downloadStatus?.let { msg ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(msg, style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
         items(zones) { zone ->
             val isDownloaded = downloadedZones.contains(zone.id)
@@ -85,6 +98,7 @@ fun ZoneListDrawer(
                     } else {
                         scope.launch {
                             try {
+                                downloadStatus = "Downloading ${zone.name}..."
                                 val response = withContext(Dispatchers.IO) {
                                     ApiClient.instance.downloadZone(zone.id)
                                 }
@@ -103,6 +117,8 @@ fun ZoneListDrawer(
                                 }
                             } catch (e: Exception) {
                                 Log.e("ZoneDownload", "Failed", e)
+                            } finally {
+                                downloadStatus = null
                             }
                         }
                     }
@@ -166,10 +182,3 @@ fun ZoneDrawerItem(
         }
     }
 }
-
-
-
-
-
-
-

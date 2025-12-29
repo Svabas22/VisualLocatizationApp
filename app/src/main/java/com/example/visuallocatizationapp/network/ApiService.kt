@@ -2,6 +2,7 @@ package com.example.visuallocatizationapp.network
 
 import com.example.visuallocatizationapp.Zone
 import com.google.android.gms.awareness.snapshot.LocationResponse
+import okhttp3.OkHttpClient
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -41,11 +42,21 @@ interface ApiService {
 object ApiClient {
     private const val BASE_URL = "http://10.0.2.2:5000/"
     //private const val BASE_URL = "http://192.168.1.233:5000/"
+    //private const val BASE_URL = "http://192.168.1.105:5000/"
+
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
 
     val instance: ApiService by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
+            .client(httpClient)
             .build()
             .create(ApiService::class.java)
     }

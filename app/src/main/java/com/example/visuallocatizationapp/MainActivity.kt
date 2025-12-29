@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts.GetContent
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FileOutputOptions
@@ -43,11 +44,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
 import com.example.visuallocatizationapp.model.LoadedModel
 import com.example.visuallocatizationapp.model.ModelLoader
 import com.example.visuallocatizationapp.model.OnnxLocalizationModel
 import com.example.visuallocatizationapp.model.PredictionResult
-import com.example.visuallocatizationapp.ui.theme.VisualLocatizationAppTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -55,6 +56,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -135,6 +137,22 @@ fun CameraRecorderScreen(selectedZone: Zone?) {
         hasPermissions = permissions[Manifest.permission.CAMERA] == true
     }
 
+    var videoUri by remember { mutableStateOf<Uri?>(null) }
+    var extractedFrames by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+
+    val pickVideoLauncher = rememberLauncherForActivityResult(GetContent()) { uri ->
+        if (uri != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                val localUri = copyUriToCache(context, uri)
+                val frames = extractFramesFromVideo(context, localUri, frameCount = 30)
+                withContext(Dispatchers.Main) {
+                    videoUri = localUri
+                    extractedFrames = frames
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         val cameraGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.CAMERA
@@ -145,9 +163,6 @@ fun CameraRecorderScreen(selectedZone: Zone?) {
             permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
         }
     }
-
-    var videoUri by remember { mutableStateOf<Uri?>(null) }
-    var extractedFrames by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
 
     when {
         !hasPermissions -> {
@@ -160,16 +175,27 @@ fun CameraRecorderScreen(selectedZone: Zone?) {
         }
 
         videoUri == null -> {
-            CameraRecordView(onVideoRecorded = { uri ->
-                videoUri = uri
-                CoroutineScope(Dispatchers.IO).launch {
-                    val frames = extractFramesFromVideo(context, uri, frameCount = 12, maxSize = 320)
-                    withContext(Dispatchers.Main) {
-                        extractedFrames = frames
+            Box(Modifier.fillMaxSize()) {
+                CameraRecordView(onVideoRecorded = { uri ->
+                    videoUri = uri
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val frames = extractFramesFromVideo(context, uri, frameCount = 30)
+                        withContext(Dispatchers.Main) {
+                            extractedFrames = frames
+                        }
+                        deleteVideoFile(uri)
                     }
-                    deleteVideoFile(uri)
+                })
+
+                Button(
+                    onClick = { pickVideoLauncher.launch("video/*") },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                ) {
+                    Text("Upload video")
                 }
-            })
+            }
         }
 
         extractedFrames.isEmpty() -> {
@@ -395,14 +421,18 @@ fun FramePlaybackScreen(
                             val keyFrames = frames.take(8)
                             OnnxLocalizationModel(loadedModel!!).predict(keyFrames, selectedZone)
                         } else {
+                            // Fallback to legacy fake coords
                             PredictionResult(54.903, 23.959, 0.9)
                         }
 
+                        Log.d(
+                            "Localization",
+                            "Raw prediction: lat=${result.latitude}, lon=${result.longitude}, conf=${result.confidence}; " +
+                                    "zone=${selectedZone.name}, bounds=[${selectedZone.bounds.minLat},${selectedZone.bounds.maxLat}]x[${selectedZone.bounds.minLon},${selectedZone.bounds.maxLon}]"
+                        )
+
                         if (selectedZone.contains(result.latitude, result.longitude)) {
-                            Log.d(
-                                "Localization",
-                                "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}"
-                            )
+                            Log.d("Localization", "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}")
                             locationData = Triple(result.latitude, result.longitude, result.confidence)
                         } else {
                             statusMessage = "Prediction outside selected zone."
@@ -501,4 +531,15 @@ fun deleteVideoFile(videoUri: Uri) {
         val path = videoUri.path ?: return
         runCatching { File(path).delete() }
     }
+}
+
+fun copyUriToCache(context: Context, uri: Uri): Uri {
+    val input: InputStream = context.contentResolver.openInputStream(uri) ?: return uri
+    val outFile = File(context.cacheDir, "upload_${System.currentTimeMillis()}.mp4")
+    input.use { inp ->
+        outFile.outputStream().use { out ->
+            inp.copyTo(out)
+        }
+    }
+    return Uri.fromFile(outFile)
 }
