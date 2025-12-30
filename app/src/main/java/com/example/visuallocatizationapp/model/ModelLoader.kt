@@ -31,7 +31,8 @@ object ModelLoader {
             listOf(
                 File(zoneDir, "model/metadata.json"),
                 File(zoneDir, "model/metadata_resnet50.json"),
-                File(zoneDir, "model/metadata_mobilenetv3.json")
+                File(zoneDir, "model/metadata_mobilenetv3.json"),
+                File(zoneDir, "model/metadata_mobilenetv3small.json")
             )
         ) ?: return null.also { Log.w(TAG, "No metadata found for ${zone.id}") }
 
@@ -46,7 +47,8 @@ object ModelLoader {
             listOf(
                 File(zoneDir, "model/weights.onnx"),
                 File(zoneDir, "model/weights_resnet50.onnx"),
-                File(zoneDir, "model/weights_mobilenetv3.onnx")
+                File(zoneDir, "model/weights_mobilenetv3.onnx"),
+                File(zoneDir, "model/metadata_mobilenetv3small.json")
             )
         )
 
