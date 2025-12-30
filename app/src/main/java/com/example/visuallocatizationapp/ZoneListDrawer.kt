@@ -35,12 +35,41 @@ fun ZoneListDrawer(
     val scope = rememberCoroutineScope()
     val gson = remember { Gson() }
 
+    fun Zone.toSafe(): Zone? {
+        val safeId = runCatching { id }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        val safeName = runCatching { name }.getOrNull().orEmpty().ifBlank { "Unknown zone" }
+        val safeDownloadUrl = runCatching { downloadUrl }.getOrNull()
+        return copy(id = safeId, name = safeName, downloadUrl = safeDownloadUrl)
+    }
+
+    fun JsonElement?.asZoneListOrEmpty(): List<Zone> {
+        if (this == null) return emptyList()
+        val listType = object : TypeToken<List<Zone>>() {}.type
+
+        return when {
+            isJsonArray -> gson.fromJson(this, listType)
+            isJsonObject -> {
+                // Try direct single-zone parse
+                val zone = runCatching { gson.fromJson(this, Zone::class.java) }.getOrNull()
+                if (zone != null) listOf(zone) else emptyList()
+            }
+            isJsonPrimitive && asJsonPrimitive.isString -> {
+                val inner = asString?.trim()
+                if (!inner.isNullOrBlank() && (inner.startsWith("{") || inner.startsWith("["))) {
+                    runCatching { gson.fromJson(inner, JsonElement::class.java) }
+                        .getOrNull()
+                        .asZoneListOrEmpty()
+                } else emptyList()
+            }
+            else -> emptyList()
+        }
+    }
+
     fun parseZones(json: String?): List<Zone> {
         if (json.isNullOrBlank()) return emptyList()
 
         fun parseElement(elem: JsonElement): List<Zone> {
             val listType = object : TypeToken<List<Zone>>() {}.type
-            val mapType = object : TypeToken<Map<String, Zone>>() {}.type
 
             return when {
                 elem.isJsonArray -> gson.fromJson(elem, listType)
@@ -48,16 +77,19 @@ fun ZoneListDrawer(
                     val zonesElement = elem.asJsonObject.get("zones")
                     when {
                         zonesElement != null && zonesElement.isJsonArray -> gson.fromJson(zonesElement, listType)
-                        zonesElement != null && zonesElement.isJsonObject -> {
-                            val map: Map<String, Zone> = gson.fromJson(zonesElement, mapType)
-                            map.values.toList()
-                        }
+                        zonesElement != null && zonesElement.isJsonObject -> zonesElement.asZoneListOrEmpty()
+                        zonesElement != null && zonesElement.isJsonPrimitive && zonesElement.asJsonPrimitive.isString ->
+                            zonesElement.asZoneListOrEmpty()
                         else -> emptyList()
                     }
                 }
                 elem.isJsonObject -> {
-                    val map: Map<String, Zone> = gson.fromJson(elem, mapType)
-                    map.values.toList()
+                    // Either a single zone object, or a map keyed by id => map values
+                    val direct = runCatching { gson.fromJson(elem, Zone::class.java) }.getOrNull()
+                    if (direct != null && !direct.id.isNullOrBlank()) listOf(direct) else
+                        elem.asJsonObject.entrySet().flatMap { (_, value) ->
+                            value.asZoneListOrEmpty()
+                        }
                 }
                 elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
                     val inner = elem.asString?.trim()
@@ -97,6 +129,7 @@ fun ZoneListDrawer(
                     Log.e("Zones", "Zones response was empty")
                     emptyList()
                 } else {
+                    Log.d("Zones", "Zones response (first 300 chars): ${bodyString.take(300)}")
                     parseZones(bodyString)
                 }
             } else {
@@ -110,7 +143,15 @@ fun ZoneListDrawer(
 
         val mergedZones = (newZones + localZones).associateBy { it.id }.values.toList()
 
-        zones = mergedZones
+        val sanitized = mergedZones.mapNotNull {
+            val safe = it.toSafe()
+            if (safe == null) {
+                Log.e("Zones", "Dropping zone with missing/invalid id or name: $it")
+            }
+            safe
+        }
+
+        zones = sanitized
         downloadedZones = newDownloadedZones
     }
 
