@@ -48,7 +48,7 @@ object ModelLoader {
                 File(zoneDir, "model/weights.onnx"),
                 File(zoneDir, "model/weights_resnet50.onnx"),
                 File(zoneDir, "model/weights_mobilenetv3.onnx"),
-                File(zoneDir, "model/metadata_mobilenetv3small.json")
+                File(zoneDir, "model/weights_mobilenetv3small.onnx")
             )
         )
 
