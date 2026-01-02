@@ -44,12 +44,12 @@ fun ZoneListDrawer(
 
     fun JsonElement?.asZoneListOrEmpty(): List<Zone> {
         if (this == null) return emptyList()
+
         val listType = object : TypeToken<List<Zone>>() {}.type
 
         return when {
             isJsonArray -> gson.fromJson(this, listType)
             isJsonObject -> {
-                // Try direct single-zone parse
                 val zone = runCatching { gson.fromJson(this, Zone::class.java) }.getOrNull()
                 if (zone != null) listOf(zone) else emptyList()
             }
@@ -84,12 +84,10 @@ fun ZoneListDrawer(
                     }
                 }
                 elem.isJsonObject -> {
-                    // Either a single zone object, or a map keyed by id => map values
-                    val direct = runCatching { gson.fromJson(elem, Zone::class.java) }.getOrNull()
-                    if (direct != null && !direct.id.isNullOrBlank()) listOf(direct) else
-                        elem.asJsonObject.entrySet().flatMap { (_, value) ->
-                            value.asZoneListOrEmpty()
-                        }
+                    // Some APIs return a map keyed by id without a "zones" wrapper
+                    elem.asJsonObject.entrySet().flatMap { (_, value) ->
+                        value.asZoneListOrEmpty()
+                    }
                 }
                 elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
                     val inner = elem.asString?.trim()
@@ -124,11 +122,8 @@ fun ZoneListDrawer(
         val newZones = try {
             val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
             if (response.isSuccessful) {
-                val bodyString: String? = response.body()
-                    ?.byteStream()
-                    ?.bufferedReader()
-                    ?.use { it.readText() }
-
+                val body: ResponseBody? = response.body()
+                val bodyString: String? = body?.string()
                 if (bodyString.isNullOrBlank()) {
                     Log.e("Zones", "Zones response was empty")
                     emptyList()
@@ -137,10 +132,8 @@ fun ZoneListDrawer(
                     parseZones(bodyString)
                 }
             } else {
-                val err: String? = response.errorBody()
-                    ?.byteStream()
-                    ?.bufferedReader()
-                    ?.use { it.readText() }
+                val errBody: ResponseBody? = response.errorBody()
+                val err: String? = errBody?.string()
                 Log.e("Zones", "Failed to fetch zones: ${response.code()} $err")
                 emptyList()
             }
@@ -148,8 +141,6 @@ fun ZoneListDrawer(
             Log.e("Zones", "Error fetching zones", e)
             emptyList()
         }
-
-
 
         val mergedZones = (newZones + localZones).associateBy { it.id }.values.toList()
 
