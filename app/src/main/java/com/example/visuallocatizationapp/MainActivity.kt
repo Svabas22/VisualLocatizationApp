@@ -351,12 +351,13 @@ fun FramePlaybackScreen(
         }
     }
 
-    locationData?.let { (lat, lon, _) ->
+    locationData?.let { (lat, lon, conf) ->
         if (selectedZone != null) {
             MapOfflineScreen(
                 zone = selectedZone,
                 latitude = lat,
                 longitude = lon,
+                confidence = conf,   // ← add this
                 onBack = { locationData = null }
             )
         }

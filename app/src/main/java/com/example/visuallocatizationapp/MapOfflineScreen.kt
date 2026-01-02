@@ -27,6 +27,7 @@ fun MapOfflineScreen(
     zone: Zone,
     latitude: Double,
     longitude: Double,
+    confidence: Double,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -72,11 +73,23 @@ fun MapOfflineScreen(
     var styleLoaded by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        Button(
-            onClick = onBack,
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text("← Back")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ){
+            Button(
+                onClick = onBack,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text("← Back")
+            }
+            Column {
+                Text("Lat: %.6f".format(latitude))
+                Text("Lon: %.6f".format(longitude))
+                Text("Conf: %.3f".format(confidence))
+            }
         }
 
         AndroidView(

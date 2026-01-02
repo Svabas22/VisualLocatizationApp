@@ -9,9 +9,12 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.File
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
 import kotlin.math.sqrt
 
 private const val TAG = "ModelLoader"
@@ -19,7 +22,7 @@ private const val TAG = "ModelLoader"
 data class LoadedModel(
     val info: ModelInfo,
     val session: OrtSession?,
-    val db: FloatArray?,
+    val db: FloatBuffer?,
     val dbRows: List<DbRow>
 )
 
@@ -66,42 +69,32 @@ object ModelLoader {
 
         val (db, rows) = loadDb(zoneDir, meta)
 
-        if (db == null || rows.isEmpty()) {
-            Log.w(TAG, "DB load result: db=${db?.size ?: 0}, rows=${rows.size}")
-        } else {
-            Log.d(TAG, "DB loaded: vectors=${rows.size}, dim=${meta.descriptorDim}, dtype=${meta.database?.dtype}")
-        }
-
         return LoadedModel(meta, session, db, rows)
     }
 
     private fun findFirst(files: List<File>): File? = files.firstOrNull { it.exists() }
 
-    private fun loadDb(zoneDir: File, meta: ModelInfo): Pair<FloatArray?, List<DbRow>> {
+    private fun loadDb(zoneDir: File, meta: ModelInfo): Pair<FloatBuffer?, List<DbRow>> {
         val dbInfo = meta.database ?: return null to emptyList()
         val dbFile = File(zoneDir, "model/${dbInfo.file}")
         val idxFile = File(zoneDir, "model/${dbInfo.index}")
         if (!dbFile.exists() || !idxFile.exists()) return null to emptyList()
 
-        val type = object : TypeToken<List<DbRow>>() {}.type
-        val rows: List<DbRow> = Gson().fromJson(idxFile.readText(), type)
-
         return runCatching {
-            if (dbInfo.dtype.equals("float16", true)) {
-                val bytes = dbFile.readBytes()
-                val shortBuf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-                val out = FloatArray(shortBuf.remaining())
-                var i = 0
-                while (shortBuf.hasRemaining()) out[i++] = halfToFloat(shortBuf.get())
-                out to rows
-            } else {
-                val bytes = dbFile.readBytes()
-                val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-                val out = FloatArray(bytes.size / 4)
-                buf.asFloatBuffer().get(out)
-                out to rows
+            FileInputStream(dbFile).use { fis ->
+                val channel: FileChannel = fis.channel
+                val mapped: MappedByteBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size())
+                mapped.order(ByteOrder.LITTLE_ENDIAN)
+                val fb: FloatBuffer = mapped.asFloatBuffer()
+
+                val type = object : TypeToken<List<DbRow>>() {}.type
+                val rows: List<DbRow> = Gson().fromJson(idxFile.readText(), type)
+                fb to rows
             }
-        }.onFailure { Log.e(TAG, "Failed to load DB", it) }.getOrDefault(null to emptyList())
+        }.getOrElse {
+            Log.e(TAG, "Failed to load DB", it)
+            null to emptyList()
+        }
     }
 
     private fun halfToFloat(h: Short): Float {
@@ -128,10 +121,10 @@ object ModelLoader {
 class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel {
     private val session = loaded.session
     private val info = loaded.info
-    private val db = loaded.db
+    private val db = loaded.db        // FloatBuffer?
     private val rows = loaded.dbRows
-    private val dim = if (info.descriptorDim > 0) info.descriptorDim else db?.let { it.size / (rows.size.coerceAtLeast(1)) } ?: 0
-
+    private val dim = if (info.descriptorDim > 0) info.descriptorDim
+    else db?.let { it.capacity() / (rows.size.coerceAtLeast(1)) } ?: 0
     override suspend fun predict(frames: List<android.graphics.Bitmap>, zone: Zone): PredictionResult {
         if (session == null) {
             Log.w("Localization", "Fallback: session is null")
@@ -245,15 +238,16 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
         return l2Normalize(out)
     }
 
-    private fun top1Cosine(query: FloatArray, db: FloatArray, dim: Int): Pair<Int, Float> {
+    private fun top1Cosine(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
         var bestIdx = -1
         var best = -1f
-        val rows = db.size / dim
+        val rowsCount = db.capacity() / dim
         var offset = 0
-        for (r in 0 until rows) {
+        for (r in 0 until rowsCount) {
             var dot = 0f
+            // absolute gets, no position changes
             for (i in 0 until dim) {
-                dot += query[i] * db[offset + i]
+                dot += query[i] * db.get(offset + i)
             }
             if (dot > best) {
                 best = dot
