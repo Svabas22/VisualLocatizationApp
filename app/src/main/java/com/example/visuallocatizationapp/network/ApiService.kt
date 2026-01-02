@@ -1,6 +1,5 @@
 package com.example.visuallocatizationapp.network
 
-import com.google.gson.JsonElement
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
@@ -22,9 +21,9 @@ interface ApiService {
     ): Response<UploadResponse>
 
     @GET("zones.json")
-    suspend fun getZones(): Response<JsonElement>
+    suspend fun getZones(): Response<ResponseBody>
 
-    @Streaming               // ← add this to prevent buffering large files
+    @Streaming // important for large ZIPs (260 MB)
     @GET
     suspend fun downloadZone(@Url url: String): Response<ResponseBody>
 }
