@@ -124,7 +124,7 @@ fun ZoneListDrawer(
         val newZones = try {
             val response = withContext(Dispatchers.IO) { ApiClient.instance.getZones() }
             if (response.isSuccessful) {
-                val bodyString = withContext(Dispatchers.IO) { response.body()?.string() }
+                val bodyString: String? = response.body()?.string()
                 if (bodyString.isNullOrBlank()) {
                     Log.e("Zones", "Zones response was empty")
                     emptyList()
@@ -133,13 +133,15 @@ fun ZoneListDrawer(
                     parseZones(bodyString)
                 }
             } else {
-                Log.e("Zones", "Failed to fetch zones: ${response.code()} ${response.errorBody()?.string()}")
+                val err: String? = response.errorBody()?.string()
+                Log.e("Zones", "Failed to fetch zones: ${response.code()} $err")
                 emptyList()
             }
         } catch (e: Exception) {
             Log.e("Zones", "Error fetching zones", e)
             emptyList()
         }
+
 
         val mergedZones = (newZones + localZones).associateBy { it.id }.values.toList()
 
