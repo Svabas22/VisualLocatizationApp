@@ -307,6 +307,25 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
         )
     }
 }
+private fun scoreFrame(bmp: Bitmap): Double {
+    var sumSq = 0.0
+    var sum = 0.0
+    var count = 0
+    val pixels = IntArray(bmp.width * bmp.height)
+    bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+    for (p in pixels) {
+        val r = (p shr 16) and 0xFF
+        val g = (p shr 8) and 0xFF
+        val b = p and 0xFF
+        val lum = 0.299 * r + 0.587 * g + 0.114 * b
+        sum += lum
+        sumSq += lum * lum
+        count++
+    }
+    val mean = sum / count
+    val variance = (sumSq / count) - (mean * mean)
+    return variance
+}
 
 @Composable
 fun FramePlaybackScreen(
@@ -323,6 +342,7 @@ fun FramePlaybackScreen(
     var loadedModel by remember { mutableStateOf<LoadedModel?>(null) }
     var modelStatus by remember { mutableStateOf("Model not loaded") }
 
+    // auto-play thumbnails
     LaunchedEffect(frames) {
         if (frames.isNotEmpty()) {
             while (isActive) {
@@ -351,13 +371,14 @@ fun FramePlaybackScreen(
         }
     }
 
+    // If we already have a predicted location, show map
     locationData?.let { (lat, lon, conf) ->
         if (selectedZone != null) {
             MapOfflineScreen(
                 zone = selectedZone,
                 latitude = lat,
                 longitude = lon,
-                confidence = conf,   // ← add this
+                confidence = conf,
                 onBack = { locationData = null }
             )
         }
@@ -419,21 +440,25 @@ fun FramePlaybackScreen(
                     isProcessing = true
                     CoroutineScope(Dispatchers.Main).launch {
                         val result: PredictionResult = if (loadedModel != null) {
-                            val keyFrames = frames.take(8)
+                            // Score frames, keep best 8, then take top 4 to encode
+                            val scored = frames.map { it to scoreFrame(it) }
+                            val topFrames = scored
+                                .sortedByDescending { it.second }
+                                .take(8)
+                                .map { it.first }
+                            val keyFrames = topFrames.take(4)
+
                             OnnxLocalizationModel(loadedModel!!).predict(keyFrames, selectedZone)
                         } else {
                             // Fallback to legacy fake coords
                             PredictionResult(54.903, 23.959, 0.9)
                         }
 
-                        Log.d(
-                            "Localization",
-                            "Raw prediction: lat=${result.latitude}, lon=${result.longitude}, conf=${result.confidence}; " +
-                                    "zone=${selectedZone.name}, bounds=[${selectedZone.bounds.minLat},${selectedZone.bounds.maxLat}]x[${selectedZone.bounds.minLon},${selectedZone.bounds.maxLon}]"
-                        )
-
                         if (selectedZone.contains(result.latitude, result.longitude)) {
-                            Log.d("Localization", "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}")
+                            Log.d(
+                                "Localization",
+                                "Predicted coords: ${result.latitude}, ${result.longitude} in zone ${selectedZone.name}"
+                            )
                             locationData = Triple(result.latitude, result.longitude, result.confidence)
                         } else {
                             statusMessage = "Prediction outside selected zone."
@@ -485,6 +510,7 @@ fun FramePlaybackScreen(
         }
     }
 }
+
 
 fun extractFramesFromVideo(
     context: Context,
