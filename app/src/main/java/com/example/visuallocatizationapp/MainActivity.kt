@@ -307,25 +307,6 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
         )
     }
 }
-private fun scoreFrame(bmp: Bitmap): Double {
-    // Simple sharpness/variance heuristic
-    val pixels = IntArray(bmp.width * bmp.height)
-    bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
-    var sum = 0.0
-    var sumSq = 0.0
-    val n = pixels.size
-    for (p in pixels) {
-        val r = (p shr 16) and 0xFF
-        val g = (p shr 8) and 0xFF
-        val b = p and 0xFF
-        val lum = 0.299 * r + 0.587 * g + 0.114 * b
-        sum += lum
-        sumSq += lum * lum
-    }
-    val mean = sum / n
-    val variance = (sumSq / n) - (mean * mean)
-    return variance
-}
 @Composable
 fun FramePlaybackScreen(
     frames: List<Bitmap>,
