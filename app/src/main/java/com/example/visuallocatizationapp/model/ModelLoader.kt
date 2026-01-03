@@ -243,25 +243,6 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
 
 
 
-    private fun top1Cosine(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
-        var bestIdx = -1
-        var best = -1f
-        val rowsCount = db.capacity() / dim
-        var offset = 0
-        for (r in 0 until rowsCount) {
-            var dot = 0f
-            // absolute gets, no position changes
-            for (i in 0 until dim) {
-                dot += query[i] * db.get(offset + i)
-            }
-            if (dot > best) {
-                best = dot
-                bestIdx = r
-            }
-            offset += dim
-        }
-        return bestIdx to best
-    }
     private fun top1CosineAcrossFrames(queries: List<FloatArray>, db: FloatBuffer, dim: Int): Pair<Int, Float> {
         var bestIdx = -1
         var best = -1f
@@ -282,7 +263,6 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
         }
         return bestIdx to best
     }
-
 
     private fun fallback(zone: Zone): PredictionResult {
         val center = zone.center
