@@ -138,7 +138,7 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             Log.w("Localization", "Fallback: no descriptors from frames")
             return fallback(zone)
         }
-        val query = poolAndNormalize(descriptors)
+        val query = averageAndNormalize(descriptors)
 
         if (db == null || rows.isEmpty() || dim == 0) {
             Log.w("Localization", "Fallback: db null/empty or dim invalid (dim=$dim, rows=${rows.size})")
@@ -230,14 +230,16 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
         return FloatArray(vec.size) { i -> vec[i] * inv }
     }
 
-    private fun poolAndNormalize(vectors: List<FloatArray>): FloatArray {
-        val out = FloatArray(vectors.first().size) { Float.NEGATIVE_INFINITY }
+    private fun averageAndNormalize(vectors: List<FloatArray>): FloatArray {
+        val out = FloatArray(vectors.first().size)
         for (v in vectors) {
-            for (i in v.indices) out[i] = maxOf(out[i], v[i])
+            for (i in v.indices) out[i] += v[i]
         }
-        for (i in out.indices) if (out[i].isInfinite()) out[i] = 0f
+        val invN = 1f / vectors.size
+        for (i in out.indices) out[i] *= invN
         return l2Normalize(out)
     }
+
 
 
     private fun top1Cosine(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
