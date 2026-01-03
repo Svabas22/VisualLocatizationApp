@@ -357,7 +357,6 @@ fun FramePlaybackScreen(
                 zone = selectedZone,
                 latitude = lat,
                 longitude = lon,
-                confidence = conf,   // ← add this
                 onBack = { locationData = null }
             )
         }
