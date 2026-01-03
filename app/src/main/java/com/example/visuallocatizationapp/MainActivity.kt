@@ -307,6 +307,7 @@ fun CameraRecordView(onVideoRecorded: (Uri) -> Unit) {
         )
     }
 }
+
 @Composable
 fun FramePlaybackScreen(
     frames: List<Bitmap>,

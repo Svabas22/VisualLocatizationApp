@@ -27,7 +27,6 @@ fun MapOfflineScreen(
     zone: Zone,
     latitude: Double,
     longitude: Double,
-    confidence: Double,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -88,7 +87,6 @@ fun MapOfflineScreen(
             Column {
                 Text("Lat: %.6f".format(latitude))
                 Text("Lon: %.6f".format(longitude))
-                Text("Conf: %.3f".format(confidence))
             }
         }
 

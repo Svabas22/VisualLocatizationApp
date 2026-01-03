@@ -8,7 +8,7 @@ fun preprocessFrame(
     inputSize: Int,
     mean: FloatArray,
     std: FloatArray,
-    centerCrop: Boolean = true,
+    centerCrop: Boolean = false,
     inputLayout: String = "nhwc"
 ): FloatArray {
     val resized = if (centerCrop) centerCropAndResize(bitmap, inputSize) else {

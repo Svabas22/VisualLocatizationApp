@@ -18,7 +18,7 @@ import java.nio.channels.FileChannel
 import kotlin.math.sqrt
 
 private const val TAG = "ModelLoader"
-private const val MIN_CONFIDENCE = 0.6f
+
 data class LoadedModel(
     val info: ModelInfo,
     val session: OrtSession?,
@@ -145,11 +145,11 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             return fallback(zone)
         }
         val (bestIdx, bestSim) = top1Cosine(query, db, dim)
-        if (bestSim < MIN_CONFIDENCE) {
-            Log.w("ModelLoader", "Rejected prediction: bestSim=$bestSim below threshold")
-            return fallback(zone) // confidence will be 0.0 in fallback
+        val row = rows.getOrNull(bestIdx)
+        if (row == null) {
+            Log.w("Localization", "Fallback: no row for bestIdx=$bestIdx")
+            return fallback(zone)
         }
-        val row = rows.getOrNull(bestIdx) ?: return fallback(zone)
         return PredictionResult(row.lat, row.lon, bestSim.toDouble())
     }
 
