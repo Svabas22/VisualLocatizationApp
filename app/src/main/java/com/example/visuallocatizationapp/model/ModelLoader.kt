@@ -235,37 +235,6 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
         return FloatArray(vec.size) { i -> vec[i] * inv }
     }
 
-    private fun averageAndNormalize(vectors: List<FloatArray>): FloatArray {
-        val out = FloatArray(vectors.first().size)
-        for (v in vectors) {
-            for (i in v.indices) out[i] += v[i]
-        }
-        val invN = 1f / vectors.size
-        for (i in out.indices) out[i] *= invN
-        return l2Normalize(out)
-    }
-
-
-
-    private fun top1Cosine(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
-        var bestIdx = -1
-        var best = -1f
-        val rowsCount = db.capacity() / dim
-        var offset = 0
-        for (r in 0 until rowsCount) {
-            var dot = 0f
-            for (i in 0 until dim) {
-                dot += query[i] * db.get(offset + i)
-            }
-            if (dot > best) {
-                best = dot
-                bestIdx = r
-            }
-            offset += dim
-        }
-        return bestIdx to best
-    }
-
     private fun fallback(zone: Zone): PredictionResult {
         val center = zone.center
         val lat = center?.lat ?: 0.0
