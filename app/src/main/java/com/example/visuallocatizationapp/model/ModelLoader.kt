@@ -130,8 +130,7 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             Log.w("Localization", "Fallback: session is null")
             return fallback(zone)
         }
-        // Use more frames and keep per-frame descriptors (no averaging across different views)
-        val subset = frames.take(10)  // was 4
+        val subset = frames.take(8)
         Log.d("Localization", "Running encoder on ${subset.size} frames, layout=${info.inputLayout}, dim=$dim")
         val descriptors = subset.mapNotNull { runEncoder(it) }
         Log.d("Localization", "Descriptors produced: ${descriptors.size}")
@@ -139,20 +138,20 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             Log.w("Localization", "Fallback: no descriptors from frames")
             return fallback(zone)
         }
+        val query = averageAndNormalize(descriptors)
 
         if (db == null || rows.isEmpty() || dim == 0) {
             Log.w("Localization", "Fallback: db null/empty or dim invalid (dim=$dim, rows=${rows.size})")
             return fallback(zone)
         }
-        val (bestIdx, bestSim) = top1CosineAcrossFrames(descriptors, db, dim)
-        if (bestSim < 0.2) {
-            Log.w("ModelLoader", "Rejected prediction: bestSim=$bestSim below threshold")
-            return fallback(zone) // confidence will be 0.0 in fallback
+        val (bestIdx, bestSim) = top1Cosine(query, db, dim)
+        val row = rows.getOrNull(bestIdx)
+        if (row == null) {
+            Log.w("Localization", "Fallback: no row for bestIdx=$bestIdx")
+            return fallback(zone)
         }
-        val row = rows.getOrNull(bestIdx) ?: return fallback(zone)
         return PredictionResult(row.lat, row.lon, bestSim.toDouble())
     }
-
 
     private fun runEncoder(bmp: android.graphics.Bitmap): FloatArray? {
         val layout = info.inputLayout?.ifBlank { "nhwc" } ?: "nhwc"
@@ -243,23 +242,22 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
 
 
 
-    private fun top1CosineAcrossFrames(queries: List<FloatArray>, db: FloatBuffer, dim: Int): Pair<Int, Float> {
+    private fun top1Cosine(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
         var bestIdx = -1
         var best = -1f
         val rowsCount = db.capacity() / dim
-        for (q in queries) {
-            var offset = 0
-            for (r in 0 until rowsCount) {
-                var dot = 0f
-                for (i in 0 until dim) {
-                    dot += q[i] * db.get(offset + i)
-                }
-                if (dot > best) {
-                    best = dot
-                    bestIdx = r
-                }
-                offset += dim
+        var offset = 0
+        for (r in 0 until rowsCount) {
+            var dot = 0f
+            // absolute gets, no position changes
+            for (i in 0 until dim) {
+                dot += query[i] * db.get(offset + i)
             }
+            if (dot > best) {
+                best = dot
+                bestIdx = r
+            }
+            offset += dim
         }
         return bestIdx to best
     }
