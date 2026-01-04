@@ -418,7 +418,7 @@ fun FramePlaybackScreen(
                     isProcessing = true
                     CoroutineScope(Dispatchers.Main).launch {
                         val result: PredictionResult = if (loadedModel != null) {
-                            val keyFrames = frames.take(8)
+                            val keyFrames = frames.take(12)
                             OnnxLocalizationModel(loadedModel!!).predict(keyFrames, selectedZone)
                         } else {
                             PredictionResult(0.00, 0.00, 0.0)
