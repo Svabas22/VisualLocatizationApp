@@ -130,33 +130,28 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
             Log.w("Localization", "Fallback: session is null")
             return fallback(zone)
         }
-        val chosen = selectBestFrames(frames, maxWindow = 16, selectCount = 12)
-        Log.d("Localization", "Running encoder on ${chosen.size} frames, layout=${info.inputLayout}, dim=$dim")
-
-        val descriptors = chosen.mapNotNull { runEncoder(it) }
+        val subset = frames.take(8)
+        Log.d("Localization", "Running encoder on ${subset.size} frames, layout=${info.inputLayout}, dim=$dim")
+        val descriptors = subset.mapNotNull { runEncoder(it) }
         Log.d("Localization", "Descriptors produced: ${descriptors.size}")
         if (descriptors.isEmpty()) {
             Log.w("Localization", "Fallback: no descriptors from frames")
             return fallback(zone)
         }
+        val query = averageAndNormalize(descriptors)
 
         if (db == null || rows.isEmpty() || dim == 0) {
             Log.w("Localization", "Fallback: db null/empty or dim invalid (dim=$dim, rows=${rows.size})")
             return fallback(zone)
         }
-
-        val matches = descriptors.map { bestRowForDescriptor(it, db, dim) }
-        val (bestIdx, bestSim) = voteBestMatch(matches)
-
-        if (bestIdx < 0) {
-            Log.w("ModelLoader", "Rejected prediction: bestSim=$bestSim below threshold or no match")
+        val (bestIdx, bestSim) = top1Cosine(query, db, dim)
+        val row = rows.getOrNull(bestIdx)
+        if (row == null) {
+            Log.w("Localization", "Fallback: no row for bestIdx=$bestIdx")
             return fallback(zone)
         }
-
-        val row = rows.getOrNull(bestIdx) ?: return fallback(zone)
         return PredictionResult(row.lat, row.lon, bestSim.toDouble())
     }
-
 
     private fun runEncoder(bmp: android.graphics.Bitmap): FloatArray? {
         val layout = info.inputLayout?.ifBlank { "nhwc" } ?: "nhwc"
@@ -235,61 +230,19 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
         return FloatArray(vec.size) { i -> vec[i] * inv }
     }
 
-    private fun fallback(zone: Zone): PredictionResult {
-        val center = zone.center
-        val lat = center?.lat ?: 0.0
-        val lon = center?.lon ?: 0.0
-        return PredictionResult(lat, lon, 0.0)
-    }
-
-    private fun selectBestFrames(
-        frames: List<android.graphics.Bitmap>,
-        maxWindow: Int = 16,   // only consider the first N frames
-        selectCount: Int = 12   // keep top-k sharp frames
-    ): List<android.graphics.Bitmap> {
-        if (frames.isEmpty()) return emptyList()
-        val window = frames.take(maxWindow)
-        return window
-            .map { it to focusScore(it) }
-            .sortedByDescending { it.second }
-            .take(selectCount)
-            .map { it.first }
-    }
-
-    // Simple sharpness proxy (gradient magnitude on a subsampled grid)
-    private fun focusScore(bmp: android.graphics.Bitmap): Double {
-        val w = bmp.width
-        val h = bmp.height
-        if (w < 3 || h < 3) return 0.0
-        val step = maxOf(1, minOf(w, h) / 64)
-        var sum = 0.0
-        var count = 0
-        fun grayAt(x: Int, y: Int): Double {
-            val p = bmp.getPixel(x, y)
-            val r = (p shr 16 and 0xFF)
-            val g = (p shr 8 and 0xFF)
-            val b = (p and 0xFF)
-            return 0.299 * r + 0.587 * g + 0.114 * b
+    private fun averageAndNormalize(vectors: List<FloatArray>): FloatArray {
+        val out = FloatArray(vectors.first().size)
+        for (v in vectors) {
+            for (i in v.indices) out[i] += v[i]
         }
-        var y = step
-        while (y < h - step) {
-            var x = step
-            while (x < w - step) {
-                val c = grayAt(x, y)
-                val dx = grayAt(x + step, y) - grayAt(x - step, y)
-                val dy = grayAt(x, y + step) - grayAt(x, y - step)
-                val g2 = dx * dx + dy * dy
-                sum += g2
-                count++
-                x += step
-            }
-            y += step
-        }
-        return if (count == 0) 0.0 else sum / count
+        val invN = 1f / vectors.size
+        for (i in out.indices) out[i] *= invN
+        return l2Normalize(out)
     }
 
-    // Best match for one descriptor
-    private fun bestRowForDescriptor(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
+
+
+    private fun top1Cosine(query: FloatArray, db: FloatBuffer, dim: Int): Pair<Int, Float> {
         var bestIdx = -1
         var best = -1f
         val rowsCount = db.capacity() / dim
@@ -308,22 +261,10 @@ class OnnxLocalizationModel(private val loaded: LoadedModel) : LocalizationModel
         return bestIdx to best
     }
 
-    // Vote across per-frame matches (majority; tie-break by average similarity)
-    private fun voteBestMatch(matches: List<Pair<Int, Float>>): Pair<Int, Float> {
-        if (matches.isEmpty()) return -1 to -1f
-        val grouped = matches.groupBy { it.first }
-        var bestIdx = -1
-        var bestCount = -1
-        var bestAvg = -1.0
-        grouped.forEach { (idx, list) ->
-            val count = list.size
-            val avg = list.map { it.second.toDouble() }.average()
-            if (count > bestCount || (count == bestCount && avg > bestAvg)) {
-                bestIdx = idx
-                bestCount = count
-                bestAvg = avg
-            }
-        }
-        return bestIdx to bestAvg.toFloat()
+    private fun fallback(zone: Zone): PredictionResult {
+        val center = zone.center
+        val lat = center?.lat ?: 0.0
+        val lon = center?.lon ?: 0.0
+        return PredictionResult(lat, lon, 0.0)
     }
 }
